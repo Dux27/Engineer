@@ -10,7 +10,16 @@ ENV/
 
 # Data directories
 data/
-data_test/
+data_*/
+train/
+train_*/
+val/
+val_*/
+test/
+test_*/
+out/
+
+# Pickle files
 *.pkl
 *.pickle
 
