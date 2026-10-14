@@ -14,3 +14,6 @@ inline constexpr uint32_t I2C_FREQUENCY_HZ = 400000;
 // MPU6050
 inline constexpr uint8_t MPU6050_I2C_ADDRESS = 0x68;
 inline constexpr gpio_num_t MPU6050_INT_GPIO = GPIO_NUM_7;
+inline constexpr float ACCEL_SCALE = 16384.0f; // LSB/g, +/- 2 g
+inline constexpr float GRAVITY = 9.80665;
+

@@ -1,12 +1,4 @@
 #include "MPU6050.hpp"
-#include "GlobalConfig.hpp"
-
-#include "esp_log.h"
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
-
-#include <array>
-#include <cstddef>
 
 static const char* TAG = "MPU6050";
 

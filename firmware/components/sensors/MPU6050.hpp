@@ -1,10 +1,15 @@
 #pragma once
 
+#include "GlobalConfig.hpp"
+
 #include "esp_log.h"
 #include "driver/i2c_master.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
+#include <array>
+#include <cstddef>
 #include <stddef.h>
-
 
 class MPU6050
 {
@@ -34,9 +39,6 @@ public:
     bool read(Data& data);
 
 private:
-    static constexpr float ACCEL_SCALE = 16384.0f; // LSB/g, +/- 2 g
-    static constexpr float GRAVITY = 9.80665;
-
     bool writeRegister(uint8_t reg, uint8_t value);
     bool readRegisters(uint8_t reg, uint8_t* data, size_t length);
     bool translateRawData(const RawData* data, Data& out);
