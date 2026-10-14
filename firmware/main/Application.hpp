@@ -15,4 +15,6 @@ public:
 
 private:
     MPU6050 imu_;
+    MPU6050::Data imu_data_{};
+
 };

@@ -24,19 +24,17 @@ bool Application::init()
 
 void Application::loop()
 {
-    MPU6050::Data data{};
-
     while(true)
     {
-        if (imu_.read(data))
+        if (imu_.read(imu_data_))
         {
             ESP_LOGI(
                 TAG,
                 "ACC: X=%.3f Y=%.3f Z=%.3f | TEMP=%.3f",
-                data.acc_x,
-                data.acc_y,
-                data.acc_z,
-                data.temperature);
+                imu_data_.acc_x,
+                imu_data_.acc_y,
+                imu_data_.acc_z,
+                imu_data_.temperature);
         }
         else
         {
