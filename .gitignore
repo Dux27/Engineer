@@ -10,7 +10,6 @@ ENV/
 
 # Data directories
 data/
-data_*/
 train/
 train_*/
 val/
