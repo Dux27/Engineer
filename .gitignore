@@ -44,6 +44,9 @@ wheels/
 .installed.cfg
 *.egg
 
+# ESP-IDF
+.cache
+
 # IDE
 .vscode/
 .idea/

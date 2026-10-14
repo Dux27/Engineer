@@ -3,4 +3,5 @@ idf_component_register(
         "Main.cpp"
         "Application.cpp"
     INCLUDE_DIRS "."
+    REQUIRES sensors
 )
