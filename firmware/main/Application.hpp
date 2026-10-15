@@ -1,20 +1,26 @@
 #pragma once
 
-#include <MPU6050.hpp>
+#include "GlobalConfig.hpp"
+#include "MPU6050.hpp"
 
+#include "driver/i2c_master.h"
 #include "esp_err.h"
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
-#include <esp_log.h>
+#include "esp_log.h"
+
+#include <memory>
 
 
 class Application
 {
 public:
+    Application() = default;
+    ~Application();
+
     esp_err_t init();
     void loop();
-
 private:
-    MPU6050 imu_;
+    i2c_master_bus_handle_t bus_handle_ = nullptr;
+
+    std::unique_ptr<MPU6050> imu_;
     MPU6050::Data imu_data_{};
 };

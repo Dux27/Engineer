@@ -30,7 +30,7 @@ public:
         float temperature;  // C
     };
 
-    MPU6050() = default;
+    MPU6050(i2c_master_bus_handle_t bus, uint8_t address);
     ~MPU6050();
 
     MPU6050(const MPU6050&) = delete;
@@ -50,4 +50,8 @@ private:
 
     i2c_master_bus_handle_t bus_handle_ = nullptr;
     i2c_master_dev_handle_t device_handle_ = nullptr;
+    uint8_t address_;
+
+    static constexpr float ACCEL_SCALE = 16384.0f;
+    static constexpr float GRAVITY = 9.80665f;
 };
