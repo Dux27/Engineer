@@ -1,4 +1,5 @@
 #include "MPU6050.hpp"
+#include "esp_err.h"
 
 static const char* TAG = "MPU6050";
 
@@ -20,11 +21,11 @@ MPU6050::~MPU6050()
     deinit();
 }
 
-bool MPU6050::init()
+esp_err_t MPU6050::init()
 {
     if (device_handle_ != nullptr)
     {
-        return true;
+        return ESP_OK;
     }
 
     i2c_master_bus_config_t bus_config = {};
@@ -42,7 +43,7 @@ bool MPU6050::init()
     {
         ESP_LOGE(TAG, "Failed to create I2C bus: %s",
                  esp_err_to_name(err));
-        return false;
+        return err;
     }
 
     i2c_device_config_t device_config = {};
@@ -60,7 +61,7 @@ bool MPU6050::init()
         ESP_LOGE(TAG, "Failed to add MPU6050 to I2C bus: %s",
                  esp_err_to_name(err));
         deinit();
-        return false;
+        return err;
     }
 
     uint8_t who_am_i = 0;
@@ -69,14 +70,14 @@ bool MPU6050::init()
     {
         ESP_LOGE(TAG, "Failed to read WHO_AM_I");
         deinit();
-        return false;
+        return ESP_ERR_INVALID_RESPONSE;
     }
 
     if (who_am_i != WHO_AM_I_VALUE)
     {
         ESP_LOGE(TAG, "Unexpected WHO_AM_I: 0x%02X", who_am_i);
         deinit();
-        return false;
+        return ESP_ERR_INVALID_RESPONSE;
     }
 
     // Wake the sensor from sleep mode.
@@ -84,7 +85,7 @@ bool MPU6050::init()
     {
         ESP_LOGE(TAG, "Failed to wake MPU6050");
         deinit();
-        return false;
+        return ESP_ERR_INVALID_RESPONSE;
     }
 
     vTaskDelay(pdMS_TO_TICKS(100));
@@ -93,41 +94,41 @@ bool MPU6050::init()
     if (!writeRegister(REG_CONFIG, 0x03))
     {
         deinit();
-        return false;
+        return ESP_ERR_INVALID_RESPONSE;
     }
 
     // 1 kHz internal rate / (1 + 9) = 100 Hz.
     if (!writeRegister(REG_SMPLRT_DIV, 9))
     {
         deinit();
-        return false;
+        return ESP_ERR_INVALID_RESPONSE;
     }
 
     // Accelerometer: +/- 2 g.
     if (!writeRegister(REG_ACCEL_CONFIG, 0x00))
     {
         deinit();
-        return false;
+        return ESP_ERR_INVALID_RESPONSE;
     }
 
     ESP_LOGI(TAG, "MPU6050 initialized successfully");
 
-    return true;
+    return ESP_OK;
 }
 
-bool MPU6050::read(Data& data)
+esp_err_t MPU6050::read(Data& data)
 {
     RawData raw{};
 
     if (!readRawData(raw))
     {
-        return false;
+        return ESP_ERR_INVALID_RESPONSE;
     }
 
     return translateRawData(&raw, data);
 }
 
-bool MPU6050::writeRegister(uint8_t reg, uint8_t value)
+esp_err_t MPU6050::writeRegister(uint8_t reg, uint8_t value)
 {
     const uint8_t buffer[] = {reg, value};
 
@@ -141,13 +142,13 @@ bool MPU6050::writeRegister(uint8_t reg, uint8_t value)
     {
         ESP_LOGE(TAG, "Register write 0x%02X failed: %s",
                  reg, esp_err_to_name(err));
-        return false;
+        return err;
     }
 
-    return true;
+    return err;
 }
 
-bool MPU6050::readRegisters( uint8_t reg, uint8_t* data, size_t length)
+esp_err_t MPU6050::readRegisters( uint8_t reg, uint8_t* data, size_t length)
 {
     const esp_err_t err = i2c_master_transmit_receive(
         device_handle_,
@@ -161,29 +162,13 @@ bool MPU6050::readRegisters( uint8_t reg, uint8_t* data, size_t length)
     {
         ESP_LOGE(TAG, "Register read 0x%02X failed: %s",
                  reg, esp_err_to_name(err));
-        return false;
+        return err;
     }
 
-    return true;
+    return err;
 }
 
-bool MPU6050::translateRawData(const RawData* data, Data& out)
-{
-    if (data == nullptr)
-    {
-        return false;
-    }
-
-    out.acc_x = static_cast<float>(data->acc_x) / ACCEL_SCALE * GRAVITY;
-    out.acc_y = static_cast<float>(data->acc_y) / ACCEL_SCALE * GRAVITY;
-    out.acc_z = static_cast<float>(data->acc_z) / ACCEL_SCALE * GRAVITY;
-
-    out.temperature = static_cast<float>(data->temperature) / 340.0f + 36.53f;
-
-    return true;
-}
-
-bool MPU6050::readRawData(RawData& data)
+esp_err_t MPU6050::readRawData(RawData& data)
 {
     std::array<uint8_t, 14> buffer{};
 
@@ -192,7 +177,7 @@ bool MPU6050::readRawData(RawData& data)
             buffer.data(),
             buffer.size()))
     {
-        return false;
+        return ESP_ERR_INVALID_RESPONSE;
     }
 
     const auto readInt16 = [&buffer](size_t index) -> int16_t
@@ -210,7 +195,23 @@ bool MPU6050::readRawData(RawData& data)
 
     data.temperature = readInt16(6);
 
-    return true;
+    return ESP_OK;
+}
+
+esp_err_t MPU6050::translateRawData(const RawData* data, Data& out)
+{
+    if (data == nullptr)
+    {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    out.acc_x = static_cast<float>(data->acc_x) / ACCEL_SCALE * GRAVITY;
+    out.acc_y = static_cast<float>(data->acc_y) / ACCEL_SCALE * GRAVITY;
+    out.acc_z = static_cast<float>(data->acc_z) / ACCEL_SCALE * GRAVITY;
+
+    out.temperature = static_cast<float>(data->temperature) / 340.0f + 36.53f;
+
+    return ESP_OK;
 }
 
 void MPU6050::deinit()

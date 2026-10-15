@@ -1,6 +1,7 @@
 #include "Application.hpp"
 #include "MPU6050.hpp"
 
+#include "esp_err.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -8,25 +9,27 @@
 
 static const char *TAG = "APP";
 
-bool Application::init()
+esp_err_t Application::init()
 {
     ESP_LOGI(TAG, "Initializing application");
 
-    if (!imu_.init())
+    esp_err_t err = imu_.init();
+    if (err != ESP_OK)
     {
         ESP_LOGE(TAG, "Failed to initialize MPU6050");
-        return false;
+        return err;
     }
 
     ESP_LOGI(TAG, "MPU6050 initialized successfully");
-    return true;
+    return err;
 }
 
 void Application::loop()
 {
     while(true)
     {
-        if (imu_.read(imu_data_))
+        esp_err_t err = imu_.read(imu_data_);
+        if (err == ESP_OK)
         {
             ESP_LOGI(
                 TAG,
