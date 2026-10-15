@@ -4,10 +4,11 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
-static const char* TAG = "MPU6050";
 
 namespace
 {
+    static const char* TAG = "MPU6050";
+
     constexpr uint8_t REG_SMPLRT_DIV   = 0x19;
     constexpr uint8_t REG_CONFIG       = 0x1A;
     constexpr uint8_t REG_ACCEL_CONFIG = 0x1C;
@@ -18,7 +19,7 @@ namespace
     constexpr uint8_t WHO_AM_I_VALUE = 0x68;
 }
 
-MPU6050::MPU6050( i2c_master_bus_handle_t bus, uint8_t address)
+MPU6050::MPU6050(i2c_master_bus_handle_t bus, uint8_t address)
     : bus_handle_(bus), address_(address) {}
 
 MPU6050::~MPU6050()
@@ -110,7 +111,7 @@ esp_err_t MPU6050::init()
         return err;
     }
 
-    ESP_LOGI(TAG, "MPU6050 initialized successfully");
+    ESP_LOGI(TAG, "Initialized successfully");
     return ESP_OK;
 }
 
@@ -184,9 +185,7 @@ esp_err_t MPU6050::readRawData(RawData& data)
     std::array<uint8_t, 14> buffer{};
 
     const esp_err_t err = readRegisters(
-        REG_ACCEL_XOUT_H,
-        buffer.data(),
-        buffer.size());
+        REG_ACCEL_XOUT_H, buffer.data(), buffer.size());
 
     if (err != ESP_OK)
     {
