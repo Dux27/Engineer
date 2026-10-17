@@ -43,6 +43,7 @@ esp_err_t Application::init()
     }
 
     ESP_LOGI(TAG, "I2C bus 0 handle: %p", bus_handle_0_);
+    scanI2CBus(bus_handle_0_);
 
     i2c_master_bus_config_t bus_config_1 = {};
     bus_config_1.i2c_port = I2C_1_PORT;
@@ -63,6 +64,7 @@ esp_err_t Application::init()
     }
 
     ESP_LOGI(TAG, "I2C bus 1 handle: %p", bus_handle_1_);
+    scanI2CBus(bus_handle_1_);
 
     esp_err_t response = ESP_FAIL;
     while (response != ESP_OK)
@@ -149,4 +151,29 @@ void Application::loop()
 
         vTaskDelay(pdMS_TO_TICKS(100));
     }
+}
+
+void Application::scanI2CBus(i2c_master_bus_handle_t bus)
+{
+    if (bus == nullptr)
+    {
+        ESP_LOGE(TAG, "[%p] Invalid I2C bus handle", bus);
+        return;
+    }
+
+    int found = 0;
+
+    ESP_LOGI(TAG, "[%p] Scanning I2C bus...", bus);
+
+    for (uint8_t address = 0x08; address <= 0x77; ++address)
+    {
+        esp_err_t err = i2c_master_probe(bus, address, 100);
+        if (err == ESP_OK)
+        {
+            ESP_LOGI(TAG, "[%p] Found device at 0x%02X", bus, address);
+            ++found;
+        }
+    }
+
+    ESP_LOGI(TAG, "[%p] Scan complete: %d device(s) found", bus, found);
 }
