@@ -1,15 +1,15 @@
 #include "TPiS1385.hpp"
+#include "esp_err.h"
+
 
 namespace
 {
     constexpr char TAG[] = "TPiS1385";
 
-    constexpr uint8_t REG_SLAVE_ADDRESS = 63;
     constexpr uint8_t REG_MEASUREMENT_START = 1;
     constexpr size_t MEASUREMENT_REGISTER_COUNT = 19;
 
-    // Placeholder calibration values for initial testing.
-    // Replace with the sensor's factory calibration values.
+    // TODO: Replace with the sensor's factory calibration values.
     constexpr float PTAT25 = 13500.0f;
     constexpr float M = 172.0f;
     constexpr float U0 = 64500.0f;
@@ -25,27 +25,8 @@ namespace
     constexpr float EXPONENT = 3.8f;
 }
 
-TPiS1385::TPiS1385(
-    i2c_master_bus_handle_t bus,
-    uint8_t address)
-    : bus_handle_(bus),
-      address_(address)
-{
-}
-
-TPiS1385::~TPiS1385()
-{
-    deinit();
-}
-
 esp_err_t TPiS1385::init()
 {
-    if (bus_handle_ == nullptr)
-    {
-        ESP_LOGE(TAG, "I2C bus handle is null");
-        return ESP_ERR_INVALID_ARG;
-    }
-
     if (device_handle_ != nullptr)
     {
         return ESP_OK;
@@ -58,40 +39,11 @@ esp_err_t TPiS1385::init()
                 esp_err_to_name(err));
         return err;
     }
-
     esp_rom_delay_us(1000);
 
-    i2c_device_config_t config = {};
-    config.dev_addr_length = I2C_ADDR_BIT_LEN_7;
-    config.device_address = address_;
-    config.scl_speed_hz = I2C_FREQUENCY_HZ;
-
-    err = i2c_master_bus_add_device(
-        bus_handle_,
-        &config,
-        &device_handle_);
-
+    err = addDevice();
     if (err != ESP_OK)
     {
-        ESP_LOGE(TAG, "Failed to add I2C device: %s",
-                 esp_err_to_name(err));
-        return err;
-    }
-
-    uint8_t slave_address_register = 0;
-
-    err = readRegister(
-        REG_SLAVE_ADDRESS,
-        slave_address_register);
-
-    if (err != ESP_OK)
-    {
-        ESP_LOGE(TAG,
-                 "Not responding at address 0x%02X: %s",
-                 address_,
-                 esp_err_to_name(err));
-
-        deinit();
         return err;
     }
 
@@ -111,42 +63,6 @@ esp_err_t TPiS1385::read(Data& data)
     }
 
     return translateRawData(&raw_data, data);
-}
-
-esp_err_t TPiS1385::writeRegister(
-    uint8_t reg,
-    uint8_t value)
-{
-    if (device_handle_ == nullptr)
-    {
-        return ESP_ERR_INVALID_STATE;
-    }
-
-    const uint8_t data[] = {reg, value};
-
-    return i2c_master_transmit(
-        device_handle_,
-        data,
-        sizeof(data),
-        I2C_TIMEOUT_MS);
-}
-
-esp_err_t TPiS1385::readRegister(
-    uint8_t reg,
-    uint8_t& value)
-{
-    if (device_handle_ == nullptr)
-    {
-        return ESP_ERR_INVALID_STATE;
-    }
-
-    return i2c_master_transmit_receive(
-        device_handle_,
-        &reg,
-        sizeof(reg),
-        &value,
-        sizeof(value),
-        I2C_TIMEOUT_MS);
 }
 
 esp_err_t TPiS1385::readRawData(RawData& raw_data)
@@ -314,13 +230,4 @@ esp_err_t TPiS1385::sendGeneralCall(i2c_master_bus_handle_t bus_handle)
              esp_err_to_name(rm_err));
 
     return err;
-}
-
-void TPiS1385::deinit()
-{
-    if (device_handle_ != nullptr)
-    {
-        i2c_master_bus_rm_device(device_handle_);
-        device_handle_ = nullptr;
-    }
 }

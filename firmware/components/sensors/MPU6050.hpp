@@ -1,10 +1,7 @@
 #pragma once
 
-#include "GlobalConfig.hpp"
+#include "I2CDevice.hpp"
 
-#include "esp_err.h"
-#include "esp_log.h"
-#include "driver/i2c_master.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
@@ -12,7 +9,8 @@
 #include <cstddef>
 #include <stddef.h>
 
-class MPU6050
+
+class MPU6050 : I2CDevice
 {
 public:
     struct RawData
@@ -30,27 +28,15 @@ public:
         float temperature;  // C
     };
 
-    MPU6050(i2c_master_bus_handle_t bus, uint8_t address);
-    ~MPU6050();
-
-    MPU6050(const MPU6050&) = delete;
-    MPU6050& operator=(const MPU6050&) = delete;
+    using I2CDevice::I2CDevice;
 
     esp_err_t init();
     esp_err_t read(Data& data);
 
 private:
-    esp_err_t writeRegister(uint8_t reg, uint8_t value);
-    esp_err_t readRegisters(uint8_t reg, uint8_t* data, size_t length);
     esp_err_t readRawData(RawData& raw_data);
     esp_err_t translateRawData(const RawData* data, Data& out);
     // TODO: Add calibration
-
-    void deinit();
-
-    i2c_master_bus_handle_t bus_handle_ = nullptr;
-    i2c_master_dev_handle_t device_handle_ = nullptr;
-    uint8_t address_;
 
     static constexpr float ACCEL_SCALE = 16384.0f;
     static constexpr float GRAVITY = 9.80665f;

@@ -1,7 +1,9 @@
 idf_component_register(
-    SRCS 
+    SRCS
+        "I2CDevice.cpp"
         "MPU6050.cpp"
         "TPiS1385.cpp"
+        "MAX30105.cpp"
     INCLUDE_DIRS "." "${PROJECT_DIR}/main"
     REQUIRES esp_driver_i2c esp_driver_gpio
 )
