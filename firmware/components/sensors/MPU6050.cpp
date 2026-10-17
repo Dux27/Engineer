@@ -111,7 +111,8 @@ esp_err_t MPU6050::init()
         return err;
     }
 
-    ESP_LOGI(TAG, "Initialized successfully");
+    ESP_LOGI(TAG, "Detected at 0x%02X", address_);
+    ESP_LOGI(TAG, "initialized successfully");
     return ESP_OK;
 }
 

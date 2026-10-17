@@ -95,12 +95,8 @@ esp_err_t TPiS1385::init()
         return err;
     }
 
-    ESP_LOGI(TAG,
-             "Detected at 0x%02X; register %u = 0x%02X",
-             address_,
-             REG_SLAVE_ADDRESS,
-             slave_address_register);
-
+    ESP_LOGI(TAG, "Detected at 0x%02X", address_);
+    ESP_LOGI(TAG, "Initialized successfully");
     return ESP_OK;
 }
 

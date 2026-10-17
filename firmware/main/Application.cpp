@@ -1,4 +1,6 @@
 #include "Application.hpp"
+#include "esp_err.h"
+#include "freertos/projdefs.h"
 
 
 static const char* TAG = "APP";
@@ -36,7 +38,7 @@ esp_err_t Application::init()
     if (err != ESP_OK)
     {
         ESP_LOGE(TAG, "Failed to initialize I2C bus 0: %s",
-                 esp_err_to_name(err));
+                esp_err_to_name(err));
         return err;
     }
 
@@ -56,43 +58,51 @@ esp_err_t Application::init()
     if (err != ESP_OK)
     {
         ESP_LOGE(TAG, "Failed to initialize I2C bus 1: %s",
-                 esp_err_to_name(err));
+                esp_err_to_name(err));
         return err;
     }
 
     ESP_LOGI(TAG, "I2C bus 1 handle: %p", bus_handle_1_);
 
-    acc_ = std::make_unique<MPU6050>(
-        bus_handle_1_, MPU6050_I2C_ADDRESS);
-
-    err = acc_->init();
-    if (err != ESP_OK)
+    esp_err_t response = ESP_FAIL;
+    while (response != ESP_OK)
     {
-        ESP_LOGE(TAG, "Failed to initialize MPU6050: %s",
-                 esp_err_to_name(err));
-        acc_.reset();
-    }
-    else
-    {
-        acc_initialized_ = true;
+        temp_ = std::make_unique<TPiS1385>(
+            bus_handle_0_, TPIS1385_I2C_ADDRESS);
+
+        err = temp_->init();
+        if (err != ESP_OK)
+        {
+            ESP_LOGE(TAG, "Failed to initialize TPiS1385: %s",
+                    esp_err_to_name(err));
+            temp_.reset();
+        }
+        else
+        {
+            temp_initialized_ = true;
+        }
+
+        acc_ = std::make_unique<MPU6050>(
+            bus_handle_1_, MPU6050_I2C_ADDRESS);
+
+        err = acc_->init();
+        if (err != ESP_OK)
+        {
+            ESP_LOGE(TAG, "Failed to initialize MPU6050: %s",
+                    esp_err_to_name(err));
+            acc_.reset();
+        }
+        else
+        {
+            acc_initialized_ = true;
+        }
+
+        response = (acc_initialized_ && temp_initialized_) ? ESP_OK : ESP_FAIL;
+
+        vTaskDelay(pdMS_TO_TICKS(1000));
     }
 
-    temp_ = std::make_unique<TPiS1385>(
-        bus_handle_0_, TPIS1385_I2C_ADDRESS);
-
-    err = temp_->init();
-    if (err != ESP_OK)
-    {
-        ESP_LOGE(TAG, "Failed to initialize TPiS1385: %s",
-                 esp_err_to_name(err));
-        temp_.reset();
-    }
-    else
-    {
-        temp_initialized_ = true;
-    }
-
-    return ESP_OK;
+    return response;
 }
 
 void Application::loop()
