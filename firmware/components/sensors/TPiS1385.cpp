@@ -9,19 +9,8 @@ namespace
     constexpr uint8_t REG_MEASUREMENT_START = 1;
     constexpr size_t MEASUREMENT_REGISTER_COUNT = 19;
 
-    // TODO: Replace with the sensor's factory calibration values.
-    constexpr float PTAT25 = 13500.0f;
-    constexpr float M = 172.0f;
-    constexpr float U0 = 64500.0f;
-    constexpr float UOUT1 = 71000.0f;
-    constexpr float TOBJ1_C = 40.0f;
-
-    constexpr uint8_t LOOKUP = 1;
-    constexpr float SKIN_EMISSIVITY = 0.98f;
-    constexpr float FOV_COVERAGE = 1.0f;
-
-    constexpr float REFERENCE_TEMP_K = 298.15f;
     constexpr float KELVIN_OFFSET = 273.15f;
+    // Power law exponent defined by LOOKUP# = 1 in the TPiS1385 datasheet.
     constexpr float EXPONENT = 3.8f;
 }
 
@@ -120,32 +109,34 @@ esp_err_t TPiS1385::translateRawData(const RawData* data, Data& out)
         return ESP_ERR_INVALID_ARG;
     }
 
-    if (M <= 0.0f || LOOKUP != 1)
+    if (cal_.m <= 0.0f ||
+        cal_.skin_emissivity <= 0.0f ||
+        cal_.fov_coverage <= 0.0f)
     {
         return ESP_ERR_INVALID_STATE;
     }
 
     // Calculate ambient temperature.
     const float ambient_k =
-        REFERENCE_TEMP_K +
-        (static_cast<float>(data->ambient_raw) - PTAT25) / M;
+        cal_.reference_temp_k +
+        (static_cast<float>(data->ambient_raw) - cal_.ptat25) / cal_.m;
 
     if (!std::isfinite(ambient_k) || ambient_k <= 0.0f)
     {
         return ESP_ERR_INVALID_RESPONSE;
     }
 
-    // Lookup function for LOOKUP# = 1.
+    // Fixed TPiS1385 lookup function.
     const auto f = [](float temperature_k) -> float
     {
         return std::pow(temperature_k, EXPONENT);
     };
 
     const float reference_object_k =
-        TOBJ1_C + KELVIN_OFFSET;
+        cal_.reference_object_temp_c + KELVIN_OFFSET;
 
     const float denominator =
-        f(reference_object_k) - f(REFERENCE_TEMP_K);
+        f(reference_object_k) - f(cal_.reference_temp_k);
 
     if (!std::isfinite(denominator) || denominator <= 0.0f)
     {
@@ -154,9 +145,9 @@ esp_err_t TPiS1385::translateRawData(const RawData* data, Data& out)
 
     // Scale factor corrected for emissivity and FOV coverage.
     const float k =
-        ((UOUT1 - U0) / denominator) *
-        SKIN_EMISSIVITY *
-        FOV_COVERAGE;
+        ((cal_.uout1 - cal_.u0) / denominator) *
+        cal_.skin_emissivity *
+        cal_.fov_coverage;
 
     if (!std::isfinite(k) || k <= 0.0f)
     {
@@ -165,7 +156,7 @@ esp_err_t TPiS1385::translateRawData(const RawData* data, Data& out)
 
     // Calculate object temperature.
     const float object_term =
-        (static_cast<float>(data->object_raw) - U0) / k +
+        (static_cast<float>(data->object_raw) - cal_.u0) / k +
         f(ambient_k);
 
     if (!std::isfinite(object_term) || object_term <= 0.0f)
@@ -181,11 +172,8 @@ esp_err_t TPiS1385::translateRawData(const RawData* data, Data& out)
         return ESP_ERR_INVALID_RESPONSE;
     }
 
-    out.ambient_temperature =
-        ambient_k - KELVIN_OFFSET;
-
-    out.skin_temperature =
-        skin_k - KELVIN_OFFSET;
+    out.ambient_temperature = ambient_k - KELVIN_OFFSET;
+    out.skin_temperature = skin_k - KELVIN_OFFSET;
 
     return ESP_OK;
 }

@@ -10,6 +10,9 @@ namespace
     constexpr uint8_t REG_ACCEL_CONFIG = 0x1C;
     constexpr uint8_t REG_ACCEL_XOUT_H = 0x3B;
     constexpr uint8_t REG_PWR_MGMT_1   = 0x6B;
+
+    constexpr float ACCEL_SCALE = 16384.0f;
+    constexpr float GRAVITY = 9.80665f;
 }
 
 esp_err_t MPU6050::init()
@@ -118,9 +121,12 @@ esp_err_t MPU6050::translateRawData(
         return ESP_ERR_INVALID_ARG;
     }
 
-    out.acc_x = static_cast<float>(data->acc_x) / ACCEL_SCALE * GRAVITY;
-    out.acc_y = static_cast<float>(data->acc_y) / ACCEL_SCALE * GRAVITY;
-    out.acc_z = static_cast<float>(data->acc_z) / ACCEL_SCALE * GRAVITY;
+    out.acc_x = static_cast<float>(data->acc_x)
+                / ACCEL_SCALE * GRAVITY - cal_.x_bias;
+    out.acc_y = static_cast<float>(data->acc_y)
+                / ACCEL_SCALE * GRAVITY - cal_.y_bias;
+    out.acc_z = static_cast<float>(data->acc_z)
+                / ACCEL_SCALE * GRAVITY - cal_.z_bias;
     out.temperature = static_cast<float>(data->temperature) / 340.0f + 36.53f;
 
     return ESP_OK;

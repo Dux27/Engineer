@@ -24,8 +24,24 @@ public:
 
     struct Data
     {
-        float skin_temperature = 0.0f;  // C
+        float skin_temperature = 0.0f;    // C
         float ambient_temperature = 0.0f; // C
+    };
+
+    struct Calibration
+    {
+        // Sensor conversion coefficients
+        float ptat25 = 13500.0f;
+        float m = 172.0f;
+        float u0 = 64500.0f;
+        float uout1 = 71000.0f;
+        float reference_object_temp_c = 40.0f;
+        float reference_temp_k = 298.15f;
+
+        // Measurement corrections
+        float skin_emissivity = 0.98f;
+        float fov_coverage = 1.0f;
+        float exponent = 3.8f;
     };
 
     using I2CDevice::I2CDevice;
@@ -37,4 +53,8 @@ private:
     esp_err_t readRawData(RawData& raw_data);
     esp_err_t translateRawData(const RawData* data, Data& out);
     esp_err_t sendGeneralCall(i2c_master_bus_handle_t bus_handle);
+
+    // TODO: add calibrateDevice() function
+
+    Calibration cal_;
 };

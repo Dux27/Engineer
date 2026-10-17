@@ -20,12 +20,20 @@ public:
         int16_t acc_z;
         int16_t temperature;
     };
+
     struct Data
     {
         float acc_x;        // m/s2
         float acc_y;        // m/s2
         float acc_z;        // m/s2
         float temperature;  // C
+    };
+
+    struct Calibration
+    {
+        float x_bias = 0.0f; // m/s2
+        float y_bias = 0.0f; // m/s2
+        float z_bias = 0.0f; // m/s2
     };
 
     using I2CDevice::I2CDevice;
@@ -36,8 +44,8 @@ public:
 private:
     esp_err_t readRawData(RawData& raw_data);
     esp_err_t translateRawData(const RawData* data, Data& out);
-    // TODO: Add calibration
 
-    static constexpr float ACCEL_SCALE = 16384.0f;
-    static constexpr float GRAVITY = 9.80665f;
+    // TODO: add calibrateDevice() function
+
+    Calibration cal_;
 };
