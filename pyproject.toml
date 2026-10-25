@@ -1,0 +1,24 @@
+[project]
+name = "engineer"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "Dux27", email = "filip.jaworski279@gmail.com" }
+]
+requires-python = ">=3.13"
+dependencies = [
+    "neurokit2>=0.2.13",
+    "numpy>=2.5.4",
+    "pandas>=2.3.3",
+    "pyarrow>=26.0.0",
+    "tqdm>=4.70.1",
+    "xgboost>=3.4.1",
+]
+
+[project.scripts]
+engineer = "engineer:main"
+
+[build-system]
+requires = ["uv_build>=0.13.5,<0.14.0"]
+build-backend = "uv_build"

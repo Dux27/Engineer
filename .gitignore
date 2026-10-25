@@ -9,7 +9,7 @@ ENV/
 .venv/
 
 # Data directories
-data/
+data_processsing/data/
 train/
 train_*/
 val/
