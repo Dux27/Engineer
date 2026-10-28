@@ -8,7 +8,7 @@ from urllib.request import urlopen
 from tqdm import tqdm
 
 URL = "https://uni-siegen.sciebo.de/s/HGdUkoNlW1Ub0Gx/download"
-DATA_DIR = Path(__file__).resolve().parent.parent / "wesad_data"
+DATA_DIR = Path(__file__).resolve().parent.parent / "wesad_dataset"
 SEED = 27
 
 with tempfile.TemporaryDirectory() as temp:
@@ -47,16 +47,23 @@ with tempfile.TemporaryDirectory() as temp:
         random.Random(SEED).shuffle(files)
 
         splits = {
-            "train": files[:11],
+            "train": files[:12],
             "val": files[12:14],
             "test": files[14:],
         }
+        assigned = [subject for subjects in splits.values() for subject in subjects]
+        assert len(assigned) == len(set(assigned)) == len(files)
 
         for split, subjects in splits.items():
             destination = DATA_DIR / split
             destination.mkdir(parents=True, exist_ok=True)
 
             for subject in subjects:
+                existing = list(DATA_DIR.glob(f"*/{Path(subject).name}"))
+                if existing:
+                    # Preserve existing split assignments and file contents.
+                    print(f"Preserving existing subject location: {existing}")
+                    continue
                 with (
                     zf.open(subject) as src, 
                     (destination / Path(subject).name).open("wb") as dst
