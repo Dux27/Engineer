@@ -5,9 +5,9 @@
 
 
 // === I2C CONFIGURATION ===
-inline constexpr gpio_num_t I2C_0_SDA_GPIO = GPIO_NUM_8;
-inline constexpr gpio_num_t I2C_0_SCL_GPIO = GPIO_NUM_9;
-inline constexpr gpio_num_t I2C_1_SDA_GPIO = GPIO_NUM_5;
+inline constexpr gpio_num_t I2C_0_SDA_GPIO = GPIO_NUM_5;
+inline constexpr gpio_num_t I2C_0_SCL_GPIO = GPIO_NUM_6;
+inline constexpr gpio_num_t I2C_1_SDA_GPIO = GPIO_NUM_3;
 inline constexpr gpio_num_t I2C_1_SCL_GPIO = GPIO_NUM_4;
 
 inline constexpr i2c_port_t I2C_0_PORT = I2C_NUM_0;

@@ -2,6 +2,7 @@
 
 #include "GlobalConfig.hpp"
 #include "MPU6050.hpp"
+#include "MAX30105.hpp"
 #include "TPiS1385.hpp"
 
 #include "driver/i2c_master.h"
@@ -26,6 +27,10 @@ private:
     std::unique_ptr<MPU6050> acc_;
     MPU6050::Data acc_data_{};
     bool acc_initialized_ {false};
+
+    std::unique_ptr<MAX30105> ppg_;
+    MAX30105::Data ppg_data_{};
+    bool ppg_initialized_ {false};
 
     std::unique_ptr<TPiS1385> temp_;
     TPiS1385::Data temp_data_{};

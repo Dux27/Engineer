@@ -1,4 +1,6 @@
 #include "Application.hpp"
+#include "GlobalConfig.hpp"
+#include "MAX30105.hpp"
 #include "esp_err.h"
 #include "freertos/projdefs.h"
 
@@ -69,23 +71,8 @@ esp_err_t Application::init()
     esp_err_t response = ESP_FAIL;
     while (response != ESP_OK)
     {
-        temp_ = std::make_unique<TPiS1385>(
-            bus_handle_0_, TPIS1385_I2C_ADDRESS);
-
-        err = temp_->init();
-        if (err != ESP_OK)
-        {
-            ESP_LOGE(TAG, "Failed to initialize TPiS1385: %s",
-                    esp_err_to_name(err));
-            temp_.reset();
-        }
-        else
-        {
-            temp_initialized_ = true;
-        }
-
         acc_ = std::make_unique<MPU6050>(
-            bus_handle_1_, MPU6050_I2C_ADDRESS);
+            bus_handle_0_, MPU6050_I2C_ADDRESS);
 
         err = acc_->init();
         if (err != ESP_OK)
@@ -97,6 +84,36 @@ esp_err_t Application::init()
         else
         {
             acc_initialized_ = true;
+        }
+
+        ppg_ = std::make_unique<MAX30105>(
+            bus_handle_0_, MAX30105_I2C_ADDRESS);
+
+        err = ppg_->init();
+        if (err != ESP_OK)
+        {
+            ESP_LOGE(TAG, "Failed to initialize MAX30105: %s",
+                    esp_err_to_name(err));
+            ppg_.reset();
+        }
+        else
+        {
+            ppg_initialized_ = true;
+        }
+
+        temp_ = std::make_unique<TPiS1385>(
+            bus_handle_1_, TPIS1385_I2C_ADDRESS);
+
+        err = temp_->init();
+        if (err != ESP_OK)
+        {
+            ESP_LOGE(TAG, "Failed to initialize TPiS1385: %s",
+                    esp_err_to_name(err));
+            temp_.reset();
+        }
+        else
+        {
+            temp_initialized_ = true;
         }
 
         response = (acc_initialized_ && temp_initialized_) ? ESP_OK : ESP_FAIL;
@@ -128,6 +145,25 @@ void Application::loop()
                          acc_data_.acc_y,
                          acc_data_.acc_z,
                          acc_data_.temperature);
+            }
+        }
+
+        if (ppg_initialized_ && ppg_ != nullptr)
+        {
+            const esp_err_t err = ppg_->read(ppg_data_);
+
+            if (err != ESP_OK)
+            {
+                ESP_LOGE(TAG, "Failed to read MAX30105: %s",
+                         esp_err_to_name(err));
+            }
+            else
+            {
+                ESP_LOGI(TAG,
+                         "[PPG] Green=%u, Red=%u, Infrared=%u",
+                         ppg_data_.green,
+                         ppg_data_.red,
+                         ppg_data_.infrared);
             }
         }
 
