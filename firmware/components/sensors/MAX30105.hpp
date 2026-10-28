@@ -16,14 +16,10 @@ public:
 
     struct Data
     {
-        uint32_t green;
-        uint32_t red;
-        uint32_t infrared;
-    };
-
-    struct Calibration
-    {
-        float todo;
+        // Beat/PPI events encountered while draining this batch.
+        bool beat_detected = false, ppi_valid = false;
+        uint32_t ppi_ms = 0;
+        float hr = 0; // Beats/min; valid when ppi_valid is true.
     };
 
     using I2CDevice::I2CDevice;
@@ -36,8 +32,9 @@ private:
     esp_err_t translateRawData(const RawData* data, Data& out);
 
     esp_err_t resetFIFO();
-    // TODO: add calibrateDevice() function
+    void resetProcessing();
 
-    Calibration cal_;
+    uint64_t sample_index_ = 0;
+    uint64_t last_beat_index_ = 0;
+    bool have_previous_beat_ = false;
 };
-

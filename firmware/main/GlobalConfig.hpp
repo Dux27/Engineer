@@ -16,10 +16,13 @@ inline constexpr i2c_port_t I2C_1_PORT = I2C_NUM_1;
 inline constexpr uint32_t I2C_FREQUENCY_HZ = 100000;
 inline constexpr int16_t I2C_TIMEOUT_MS = 100;
 
+// === SENSORS CONFIGURATION ===
 // [ACC] MPU6050
 inline constexpr uint8_t MPU6050_I2C_ADDRESS = 0x68;
+
 // [TEMP] Excelitas TPiS1385
 inline constexpr uint8_t TPIS1385_I2C_ADDRESS = 0x0D;
+
 // [PPG] MAX30105
 inline constexpr uint8_t MAX30105_I2C_ADDRESS = 0x57;
-
+inline constexpr uint32_t MAX30105_SAMPLE_RATE_HZ = 100;

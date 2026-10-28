@@ -1,4 +1,8 @@
 #include "MAX30105.hpp"
+#include "HeartRate.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "esp_timer.h"
 
 
 namespace
@@ -11,7 +15,7 @@ namespace
     constexpr uint8_t REG_FIFO_DATA    = 0x07; // Read here to retrieve queued measurement bytes.
     constexpr uint8_t REG_FIFO_CONFIG  = 0x08; // Controls averaging, rollover, and almost-full threshold.
     constexpr uint8_t REG_MODE_CONFIG  = 0x09; // Controls operating mode, shutdown, and reset.
-    constexpr uint8_t REG_SPO2_CONFIG  = 0x0A; // Sets ADC range, sampling rate, and LED pulse width.
+    constexpr uint8_t REG_MEASUREMENT_CONFIG  = 0x0A; // Sets ADC range, sampling rate, and LED pulse width.
     constexpr uint8_t REG_LED1_PA      = 0x0C; // Sets red LED pulse current (brightness).
     constexpr uint8_t REG_LED2_PA      = 0x0D; // Sets infrared LED pulse current (brightness).
     constexpr uint8_t REG_LED3_PA      = 0x0E; // Sets green LED pulse current (brightness).
@@ -28,18 +32,19 @@ namespace
     // Bits 7:5 - Averaging: 1, 2, 4, 8, 16, 32 samples.
     // Bit 4    - FIFO rollover: 0 = Off, 1 = On.
     // Bits 3:0 - Almost-full threshold: 0–15 empty slots.
-    // Selected: 4 samples, rollover On, threshold 15.
+    // Selected: no averaging, rollover On, threshold 15.
     constexpr uint8_t FIFO_CONFIG =             // -> 00000000
-        (0b010 << 5) |  // Average 4 samples    // -> 01000000
-        (0b1 << 4)   |  // Enable rollover      // -> 01010000
-        0b1111;         // Threshold = 15       // -> 01011111
+        (0b000 << 5) |  // No averaging         // -> 00000000
+        (0b1 << 4)   |  // Enable rollover      // -> 00010000
+        0b1111;         // Threshold = 15       // -> 00011111
 
     // Bits 6:5 - ADC range: 2048, 4096, 8192, 16384 nA.
     // Bits 4:2 - Sample rate: 50–3200 Hz (8 options).
     // Bits 1:0 - Pulse width and resolution:
     //            69/118/215/411 us = 15/16/17/18 bits.
-    // Selected: 16384 nA, 400 Hz, 411 us (18-bit).
-    constexpr uint8_t SPO2_CONFIG = 0x6F;
+    // Selected: 16384 nA, 100 Hz, 411 us (18-bit).
+    // No FIFO averaging: beat detection receives 100 records/s.
+    constexpr uint8_t MEASUREMENT_CONFIG = 0x67;
 
     // LED current: 0–255 (~0–50 mA).
     // Selected: 36 (~7.2 mA).
@@ -102,6 +107,24 @@ esp_err_t MAX30105::init()
         return err;
     }
 
+    // Reset completes asynchronously. Do not configure registers until it clears.
+    const int64_t deadline = esp_timer_get_time() + 100000;
+    while (true)
+    {
+        uint8_t mode = 0;
+        err = readRegisters(REG_MODE_CONFIG, &mode, 1);
+        if (err != ESP_OK || !(mode & MODE_RESET)) break;
+        if (esp_timer_get_time() >= deadline) { err = ESP_ERR_TIMEOUT; break; }
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
+    if (err != ESP_OK)
+    {
+        ESP_LOGE(TAG, "Sensor reset did not complete: %s", esp_err_to_name(err));
+        deinit();
+        return err;
+    }
+    resetProcessing();
+
     // Clear FIFO pointers and overflow counter.
     err = resetFIFO();
     if (err != ESP_OK)
@@ -111,7 +134,7 @@ esp_err_t MAX30105::init()
         return err;
     }
 
-    // FIFO averaging: 4 samples; enable FIFO rollover.
+    // No FIFO averaging; enable FIFO rollover.
     err = writeRegister(REG_FIFO_CONFIG, FIFO_CONFIG);
     if (err != ESP_OK)
     {
@@ -120,9 +143,9 @@ esp_err_t MAX30105::init()
         return err;
     }
 
-    // ADC range: 16384 nA, requested sample rate: 400 samples/s,
+    // ADC range: 16384 nA, requested sample rate: 100 samples/s,
     // LED pulse width: 411 us.
-    err = writeRegister(REG_SPO2_CONFIG, SPO2_CONFIG);
+    err = writeRegister(REG_MEASUREMENT_CONFIG, MEASUREMENT_CONFIG);
     if (err != ESP_OK)
     {
         ESP_LOGE(TAG, "Failed to configure ADC and sample timing: %s", esp_err_to_name(err));
@@ -187,51 +210,50 @@ esp_err_t MAX30105::init()
 
 esp_err_t MAX30105::read(Data& data)
 {
-    RawData raw{};
-
-    const esp_err_t err = readRawData(raw);
-    if (err != ESP_OK)
+    data = {};
+    // Read each status register explicitly; these are positions, not FIFO data.
+    uint8_t status[3]{};
+    esp_err_t err = readRegisters(REG_FIFO_WR_PTR, &status[0], 1);
+    if (err == ESP_OK) err = readRegisters(REG_FIFO_OVF, &status[1], 1);
+    if (err == ESP_OK) err = readRegisters(REG_FIFO_RD_PTR, &status[2], 1);
+    if (err != ESP_OK) return err;
+    if (status[1] & FIFO_POINTER_MASK)
     {
-        return err;
+        ESP_LOGW(TAG, "FIFO overflow: WR=%u RD=%u OVF=%u; discarding discontinuous samples",
+                 status[0], status[2], status[1]);
+        resetProcessing();
+        // Popping a complete record clears OVF_COUNTER in hardware. Pointer
+        // writes alone must not leave recovery stuck on a stale overflow count.
+        RawData discarded{};
+        err = readRawData(discarded);
+        if (err != ESP_OK) return err;
+        err = resetFIFO();
+        return err == ESP_OK ? ESP_ERR_INVALID_STATE : err;
     }
-
-    return translateRawData(&raw, data);
+    const size_t pending = (status[0] - status[2]) & FIFO_POINTER_MASK;
+    if (!pending) return ESP_ERR_NOT_FOUND;
+    for (size_t i = 0; i < pending; ++i)
+    {
+        RawData raw{};
+        err = readRawData(raw);
+        if (err == ESP_OK) err = translateRawData(&raw, data);
+        if (err != ESP_OK)
+        {
+            resetProcessing();
+            resetFIFO();
+            data = {};
+            return err;
+        }
+    }
+    return ESP_OK;
 }
 
 esp_err_t MAX30105::readRawData(RawData& data)
 {
-    uint8_t write_ptr = 0;
-    uint8_t read_ptr = 0;
-
-    esp_err_t err = readRegisters(REG_FIFO_WR_PTR, &write_ptr, 1);
-    if (err != ESP_OK)
-    {
-        ESP_LOGE(TAG, "Failed to read FIFO write pointer: %s", esp_err_to_name(err));
-        return err;
-    }
-
-    err = readRegisters(REG_FIFO_RD_PTR, &read_ptr, 1);
-    if (err != ESP_OK)
-    {
-        ESP_LOGE(TAG, "Failed to read FIFO read pointer: %s", esp_err_to_name(err));
-        return err;
-    }
-
-    write_ptr &= FIFO_POINTER_MASK;
-    read_ptr &= FIFO_POINTER_MASK;
-
-    // Equal pointers are treated as empty here. Full/wrapped FIFO detection
-    // also requires overflow/full-state handling; pointers alone are ambiguous.
-    if (write_ptr == read_ptr)
-    {
-        return ESP_ERR_NOT_FOUND;
-    }
-
-    // Read the oldest unread record, not necessarily the newest measurement.
-    // The sensor advances its read pointer as the record is consumed.
+    // Caller snapshots the queued count; consume one complete record here.
     uint8_t fifo[FIFO_SAMPLE_SIZE]{};
 
-    err = readRegisters(REG_FIFO_DATA, fifo, sizeof(fifo));
+    const esp_err_t err = readRegisters(REG_FIFO_DATA, fifo, sizeof(fifo));
     if (err != ESP_OK)
     {
         ESP_LOGE(TAG, "Failed to read FIFO sample: %s", esp_err_to_name(err));
@@ -264,10 +286,30 @@ esp_err_t MAX30105::translateRawData(const RawData* data, Data& out)
         return ESP_ERR_INVALID_ARG;
     }
 
-    // These are raw optical ADC readings, not calibrated physical units.
-    out.red = data->red;
-    out.infrared = data->infrared;
-    out.green = data->green;
+    // Every FIFO record advances acquisition time, even when read in a batch.
+    ++sample_index_;
+    // Ignore the first two seconds while the detector settles.
+    if (checkForBeat(data->infrared) && sample_index_ >= MAX30105_SAMPLE_RATE_HZ * 2)
+    {
+        out.beat_detected = true;
+        out.ppi_valid = false;
+        out.ppi_ms = 0;
+        out.hr = 0;
+        if (have_previous_beat_)
+        {
+            const uint64_t interval_ms =
+                (sample_index_ - last_beat_index_) * 1000 / MAX30105_SAMPLE_RATE_HZ;
+            // Reject intervals outside the chosen 30..200 beats/min range.
+            out.ppi_valid = interval_ms >= 300 && interval_ms <= 2000;
+            if (out.ppi_valid)
+            {
+                out.ppi_ms = static_cast<uint32_t>(interval_ms);
+                out.hr = 60000.0f / out.ppi_ms;
+            }
+        }
+        last_beat_index_ = sample_index_;
+        have_previous_beat_ = true;
+    }
 
     return ESP_OK;
 }
@@ -294,4 +336,11 @@ esp_err_t MAX30105::resetFIFO()
         ESP_LOGE(TAG, "Failed to clear FIFO read pointer: %s", esp_err_to_name(err));
     }
     return err;
+}
+
+void MAX30105::resetProcessing()
+{
+    sample_index_ = last_beat_index_ = 0;
+    have_previous_beat_ = false;
+    resetHeartRate();
 }

@@ -118,7 +118,8 @@ esp_err_t Application::init()
 
         response = (acc_initialized_ && temp_initialized_) ? ESP_OK : ESP_FAIL;
 
-        vTaskDelay(pdMS_TO_TICKS(1000));
+        // Once ready, start draining the PPG FIFO immediately (320 ms capacity).
+        if (response != ESP_OK) vTaskDelay(pdMS_TO_TICKS(1000));
     }
 
     return response;
@@ -152,18 +153,22 @@ void Application::loop()
         {
             const esp_err_t err = ppg_->read(ppg_data_);
 
-            if (err != ESP_OK)
+            if (err != ESP_OK && err != ESP_ERR_NOT_FOUND)
             {
                 ESP_LOGE(TAG, "Failed to read MAX30105: %s",
                          esp_err_to_name(err));
             }
-            else
+            else if (err == ESP_OK)
             {
-                ESP_LOGI(TAG,
-                         "[PPG] Green=%u, Red=%u, Infrared=%u",
-                         ppg_data_.green,
-                         ppg_data_.red,
-                         ppg_data_.infrared);
+                if (ppg_data_.ppi_valid)
+                {
+                    ESP_LOGI(TAG, "[PPG] HR=%.1f bpm | PPI=%u ms",
+                             ppg_data_.hr, ppg_data_.ppi_ms);
+                }
+                else if (ppg_data_.beat_detected)
+                {
+                    ESP_LOGI(TAG, "[PPG] PPI unavailable (first beat or rejected interval)");
+                }
             }
         }
 
