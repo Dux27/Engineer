@@ -7,5 +7,5 @@ idf_component_register(
         "GroveGSR.cpp"
     INCLUDE_DIRS "." "${PROJECT_DIR}/main"
     PRIV_REQUIRES esp_timer
-    REQUIRES esp_driver_i2c esp_driver_gpio ppg_processing
+    REQUIRES esp_driver_i2c esp_driver_gpio esp_adc ppg_processing
 )

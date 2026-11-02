@@ -12,6 +12,7 @@ Application::~Application()
     acc_.reset();
     ppg_.reset();
     temp_.reset();
+    gsr_.reset();
 
     if (bus_handle_0_ != nullptr)
     {
@@ -72,7 +73,7 @@ esp_err_t Application::init()
     esp_err_t response = ESP_FAIL;
     while (response != ESP_OK)
     {
-        acc_initialized_ = ppg_initialized_ = temp_initialized_ = false;
+        acc_initialized_ = ppg_initialized_ = temp_initialized_ = gsr_initialized_ = false;
         acc_ = std::make_unique<MPU6050>(
             bus_handle_0_, MPU6050_I2C_ADDRESS);
 
@@ -118,7 +119,20 @@ esp_err_t Application::init()
             temp_initialized_ = true;
         }
 
-        response = (acc_initialized_ && ppg_initialized_ && temp_initialized_) ? ESP_OK : ESP_FAIL;
+        gsr_ = std::make_unique<GroveGSR>(GROVEGSR_ADC_PIN);
+        err = gsr_->init();
+        if (err != ESP_OK)
+        {
+            ESP_LOGE(TAG, "Failed to initialize GroveGSR: %s", esp_err_to_name(err));
+            gsr_.reset();
+        }
+        else
+        {
+            gsr_initialized_ = true;
+        }
+
+        response = (acc_initialized_ && ppg_initialized_ && temp_initialized_ && gsr_initialized_)
+                       ? ESP_OK : ESP_FAIL;
 
         // Once ready, start draining the PPG FIFO immediately (320 ms capacity).
         if (response != ESP_OK) vTaskDelay(pdMS_TO_TICKS(1000));
@@ -197,7 +211,28 @@ void Application::loop()
             }
         }
 
-        // Service PPG at 50 Hz; ACC/TEMP logging stays at approximately 10 Hz.
+        if (read_slow_sensors && gsr_initialized_ && gsr_ != nullptr)
+        {
+            const esp_err_t err = gsr_->read(gsr_data_);
+            if (err != ESP_OK)
+            {
+                ESP_LOGE(TAG, "Failed to read GroveGSR: %s", esp_err_to_name(err));
+            }
+            else if (gsr_data_.voltage_valid)
+            {
+                ESP_LOGI(TAG, "[EDA] Raw=%u | Voltage=%d mV | Clipped=%s",
+                         static_cast<unsigned>(gsr_data_.raw), gsr_data_.voltage_mv,
+                         gsr_data_.clipped ? "yes" : "no");
+            }
+            else
+            {
+                ESP_LOGI(TAG, "[EDA] Raw=%u | Voltage=unavailable | Clipped=%s",
+                         static_cast<unsigned>(gsr_data_.raw),
+                         gsr_data_.clipped ? "yes" : "no");
+            }
+        }
+
+        // Service PPG at 50 Hz; ACC/TEMP/EDA logging stays at approximately 10 Hz.
         vTaskDelayUntil(&wake_time, pdMS_TO_TICKS(20));
     }
 }

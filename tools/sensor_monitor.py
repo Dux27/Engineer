@@ -17,7 +17,8 @@ NUMBER = r"([-+]?\d+(?:\.\d+)?)"
 ACC = re.compile(r"\[ACC\] ACC: X=" + NUMBER + r" Y=" + NUMBER + r" Z=" + NUMBER + r" \| DEVICE-TEMP=" + NUMBER)
 TEMP = re.compile(r"\[TEMP\] SKIN-TEMP=" + NUMBER + r" C \| DEVICE-TEMP: " + NUMBER)
 PPG = re.compile(r"\[PPG\] HR=" + NUMBER + r" bpm \| PPI=(\d+) ms")
-NAMES = ("MPU6050", "MAX30102", "TPiS1385")
+EDA = re.compile(r"\[EDA\] Raw=(\d+) \| Voltage=(?:(\d+) mV|unavailable) \| Clipped=(yes|no)")
+NAMES = ("MPU6050", "MAX30102", "TPiS1385", "GroveGSR")
 
 
 @dataclass
@@ -57,6 +58,15 @@ class Dashboard:
             if match:
                 self.sensors[name] = Sensor(tuple(map(float, match.groups())), now, "OK")
                 return
+        eda = EDA.search(line)
+        if eda:
+            raw, voltage, clipped = eda.groups()
+            status = "ADC clipped; check signal range" if clipped == "yes" else "OK"
+            if voltage is None and clipped != "yes":
+                status = "Raw only; ADC voltage calibration unavailable"
+            self.sensors["GroveGSR"] = Sensor(
+                (int(raw), int(voltage) if voltage is not None else None), now, status)
+            return
         if "[PPG] PPI unavailable" in line:
             self.sensors["MAX30102"].status = "Beat candidate; no valid interval"
         for name in NAMES:
@@ -85,7 +95,8 @@ def draw(screen, model, title, now, received):
     ]
     for name in NAMES:
         sensor = model.sensors[name]
-        rows.append(f"{name}  |  Last valid update: {age(sensor, now)}")
+        update_label = "Last sample update" if name == "GroveGSR" else "Last valid update"
+        rows.append(f"{name}  |  {update_label}: {age(sensor, now)}")
         if sensor.values is None:
             rows.append("  --")
         elif name == "MPU6050":
@@ -94,6 +105,10 @@ def draw(screen, model, title, now, received):
         elif name == "MAX30102":
             hr, ppi = sensor.values
             rows.append(f"  Heart rate: {hr:.1f} bpm  |  Pulse interval: {ppi:.0f} ms")
+        elif name == "GroveGSR":
+            raw, voltage = sensor.values
+            voltage_label = f"{voltage} mV" if voltage is not None else "unavailable"
+            rows.append(f"  EDA raw: {raw}/4095  |  Voltage: {voltage_label}")
         else:
             skin, device = sensor.values
             rows.append(f"  Skin: {skin:.2f} °C  |  Device: {device:.2f} °C")
@@ -101,7 +116,7 @@ def draw(screen, model, title, now, received):
     rows += ["PPG age tracks valid beat estimates, not raw sample acquisition.",
              "Latest warning/error (retained):", "  " + model.notice]
     if height < len(rows) or width < 65:
-        rows = ["Enlarge terminal (at least 65 columns x 20 rows).", "q: quit"]
+        rows = [f"Enlarge terminal (at least 65 columns x {len(rows)} rows).", "q: quit"]
     # Update the existing screen, without clearing the terminal on every frame.
     for row in range(height):
         screen.move(row, 0)
@@ -117,7 +132,8 @@ def draw(screen, model, title, now, received):
 def demo_lines(tick):
     stamp = tick * 100
     lines = [f"I ({stamp}) APP: [ACC] ACC: X=0.123 Y=-0.456 Z=9.807 | DEVICE-TEMP=25.30 C",
-             f"I ({stamp}) APP: [TEMP] SKIN-TEMP=32.10 C | DEVICE-TEMP: 25.40 C"]
+             f"I ({stamp}) APP: [TEMP] SKIN-TEMP=32.10 C | DEVICE-TEMP: 25.40 C",
+             f"I ({stamp}) APP: [EDA] Raw=1800 | Voltage=1360 mV | Clipped=no"]
     if tick % 8 == 0:
         lines.append(f"I ({stamp}) APP: [PPG] HR=75.0 bpm | PPI=800 ms")
     return "\n".join(lines) + "\n"

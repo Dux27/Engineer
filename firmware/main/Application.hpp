@@ -4,6 +4,7 @@
 #include "MPU6050.hpp"
 #include "MAX30102.hpp"
 #include "TPiS1385.hpp"
+#include "GroveGSR.hpp"
 
 #include "driver/i2c_master.h"
 #include "driver/i2c_types.h"
@@ -35,6 +36,10 @@ private:
     std::unique_ptr<TPiS1385> temp_;
     TPiS1385::Data temp_data_{};
     bool temp_initialized_ {false};
+
+    std::unique_ptr<GroveGSR> gsr_;
+    GroveGSR::Data gsr_data_{};
+    bool gsr_initialized_ {false};
 
     void scanI2CBus(i2c_master_bus_handle_t);
 };

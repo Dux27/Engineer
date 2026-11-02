@@ -2,6 +2,8 @@
 
 #include "driver/gpio.h"
 #include "driver/i2c_master.h"
+#include "soc/gpio_num.h"
+#include "soc/gpio_struct.h"
 
 
 // === I2C CONFIGURATION ===
@@ -28,3 +30,6 @@ inline constexpr uint8_t MAX30102_I2C_ADDRESS = 0x57;
 // FIFO output rate: 400 ADC conversions/s divided by 4-sample averaging.
 // Changing this also requires matching register settings and filter design.
 inline constexpr uint32_t MAX30102_SAMPLE_RATE_HZ = 100;
+
+// [EDA] Seeed Studio Grove GSR
+inline constexpr gpio_num_t GROVEGSR_ADC_PIN = GPIO_NUM_2;
