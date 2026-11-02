@@ -17,7 +17,7 @@ NUMBER = r"([-+]?\d+(?:\.\d+)?)"
 ACC = re.compile(r"\[ACC\] ACC: X=" + NUMBER + r" Y=" + NUMBER + r" Z=" + NUMBER + r" \| DEVICE-TEMP=" + NUMBER)
 TEMP = re.compile(r"\[TEMP\] SKIN-TEMP=" + NUMBER + r" C \| DEVICE-TEMP: " + NUMBER)
 PPG = re.compile(r"\[PPG\] HR=" + NUMBER + r" bpm \| PPI=(\d+) ms")
-NAMES = ("MPU6050", "MAX30105", "TPiS1385")
+NAMES = ("MPU6050", "MAX30102", "TPiS1385")
 
 
 @dataclass
@@ -52,13 +52,13 @@ class Dashboard:
                 self.sensors = {name: Sensor() for name in NAMES}
                 self.notice = "Board restarted; previous readings cleared"
             self.device_ms = device_ms
-        for name, pattern in (("MPU6050", ACC), ("MAX30105", PPG), ("TPiS1385", TEMP)):
+        for name, pattern in (("MPU6050", ACC), ("MAX30102", PPG), ("TPiS1385", TEMP)):
             match = pattern.search(line)
             if match:
                 self.sensors[name] = Sensor(tuple(map(float, match.groups())), now, "OK")
                 return
         if "[PPG] PPI unavailable" in line:
-            self.sensors["MAX30105"].status = "Beat candidate; no valid interval"
+            self.sensors["MAX30102"].status = "Beat candidate; no valid interval"
         for name in NAMES:
             if name + ":" in line and "initialized successfully" in line.lower():
                 self.sensors[name].status = "Initialized; waiting for measurement"
@@ -91,7 +91,7 @@ def draw(screen, model, title, now, received):
         elif name == "MPU6050":
             x, y, z, temperature = sensor.values
             rows.append(f"  Acceleration: X {x:7.3f}  Y {y:7.3f}  Z {z:7.3f} m/s²  |  Device {temperature:.2f} °C")
-        elif name == "MAX30105":
+        elif name == "MAX30102":
             hr, ppi = sensor.values
             rows.append(f"  Heart rate: {hr:.1f} bpm  |  Pulse interval: {ppi:.0f} ms")
         else:

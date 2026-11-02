@@ -23,6 +23,8 @@ inline constexpr uint8_t MPU6050_I2C_ADDRESS = 0x68;
 // [TEMP] Excelitas TPiS1385
 inline constexpr uint8_t TPIS1385_I2C_ADDRESS = 0x0D;
 
-// [PPG] MAX30105
-inline constexpr uint8_t MAX30105_I2C_ADDRESS = 0x57;
-inline constexpr uint32_t MAX30105_SAMPLE_RATE_HZ = 100;
+// [PPG] MAX30102
+inline constexpr uint8_t MAX30102_I2C_ADDRESS = 0x57;
+// FIFO output rate: 400 ADC conversions/s divided by 4-sample averaging.
+// Changing this also requires matching register settings and filter design.
+inline constexpr uint32_t MAX30102_SAMPLE_RATE_HZ = 100;

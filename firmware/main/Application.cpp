@@ -1,6 +1,6 @@
 #include "Application.hpp"
 #include "GlobalConfig.hpp"
-#include "MAX30105.hpp"
+#include "MAX30102.hpp"
 #include "esp_err.h"
 #include "freertos/projdefs.h"
 
@@ -10,6 +10,7 @@ static const char* TAG = "APP";
 Application::~Application()
 {
     acc_.reset();
+    ppg_.reset();
     temp_.reset();
 
     if (bus_handle_0_ != nullptr)
@@ -71,6 +72,7 @@ esp_err_t Application::init()
     esp_err_t response = ESP_FAIL;
     while (response != ESP_OK)
     {
+        acc_initialized_ = ppg_initialized_ = temp_initialized_ = false;
         acc_ = std::make_unique<MPU6050>(
             bus_handle_0_, MPU6050_I2C_ADDRESS);
 
@@ -86,13 +88,13 @@ esp_err_t Application::init()
             acc_initialized_ = true;
         }
 
-        ppg_ = std::make_unique<MAX30105>(
-            bus_handle_0_, MAX30105_I2C_ADDRESS);
+        ppg_ = std::make_unique<MAX30102>(
+            bus_handle_0_, MAX30102_I2C_ADDRESS);
 
         err = ppg_->init();
         if (err != ESP_OK)
         {
-            ESP_LOGE(TAG, "Failed to initialize MAX30105: %s",
+            ESP_LOGE(TAG, "Failed to initialize MAX30102: %s",
                     esp_err_to_name(err));
             ppg_.reset();
         }
@@ -116,7 +118,7 @@ esp_err_t Application::init()
             temp_initialized_ = true;
         }
 
-        response = (acc_initialized_ && temp_initialized_) ? ESP_OK : ESP_FAIL;
+        response = (acc_initialized_ && ppg_initialized_ && temp_initialized_) ? ESP_OK : ESP_FAIL;
 
         // Once ready, start draining the PPG FIFO immediately (320 ms capacity).
         if (response != ESP_OK) vTaskDelay(pdMS_TO_TICKS(1000));
@@ -127,9 +129,14 @@ esp_err_t Application::init()
 
 void Application::loop()
 {
+    TickType_t wake_time = xTaskGetTickCount();
+    TickType_t last_slow_read = wake_time - pdMS_TO_TICKS(100);
     while (true)
     {
-        if (acc_initialized_ && acc_ != nullptr)
+        const TickType_t now = xTaskGetTickCount();
+        const bool read_slow_sensors = now - last_slow_read >= pdMS_TO_TICKS(100);
+        if (read_slow_sensors) last_slow_read = now;
+        if (read_slow_sensors && acc_initialized_ && acc_ != nullptr)
         {
             const esp_err_t err = acc_->read(acc_data_);
 
@@ -155,7 +162,7 @@ void Application::loop()
 
             if (err != ESP_OK && err != ESP_ERR_NOT_FOUND)
             {
-                ESP_LOGE(TAG, "Failed to read MAX30105: %s",
+                ESP_LOGE(TAG, "Failed to read MAX30102: %s",
                          esp_err_to_name(err));
             }
             else if (err == ESP_OK)
@@ -172,7 +179,7 @@ void Application::loop()
             }
         }
 
-        if (temp_initialized_ && temp_ != nullptr)
+        if (read_slow_sensors && temp_initialized_ && temp_ != nullptr)
         {
             const esp_err_t err = temp_->read(temp_data_);
 
@@ -190,7 +197,8 @@ void Application::loop()
             }
         }
 
-        vTaskDelay(pdMS_TO_TICKS(100));
+        // Service PPG at 50 Hz; ACC/TEMP logging stays at approximately 10 Hz.
+        vTaskDelayUntil(&wake_time, pdMS_TO_TICKS(20));
     }
 }
 

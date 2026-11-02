@@ -4,12 +4,12 @@
  SparkFun Electronics
  Date: October 2nd, 2016
  
- Given a series of IR samples from the MAX30105 we discern when a heart beat is occurring
+ Given a series of optical samples from the MAX30102 we discern when a heart beat is occurring
 
  Let's have a brief chat about what this code does. We're going to try to detect
  heart-rate optically. This is tricky and prone to give false readings. We really don't
  want to get anyone hurt so use this code only as an example of how to process optical
- data. Build fun stuff with our MAX30105 breakout board but don't use it for actual
+ data. Build fun stuff with our MAX30102 breakout board but don't use it for actual
  medical diagnosis.
 
  Excellent background on optical heart rate detection:
@@ -20,7 +20,7 @@
  https://fruct.org/publications/fruct13/files/Lau.pdf
 
  This is an implementation of Maxim's PBA (Penpheral Beat Amplitude) algorithm. It's been 
- converted to work within the Arduino framework.
+ ported from Arduino to ESP-IDF; original copyright/license retained.
 */
 
 /* Copyright (C) 2016 Maxim Integrated Products, Inc., All Rights Reserved.
@@ -74,6 +74,7 @@ int64_t ir_avg_reg = 0;
 
 int16_t cbuf[32];
 uint8_t offset = 0;
+static bool baseline_initialized = false;
 
 static const uint16_t FIRCoeffs[12] = {172, 321, 579, 927, 1360, 1858, 2390, 2916, 3391, 3768, 4012, 4096};
 
@@ -92,6 +93,11 @@ bool checkForBeat(int32_t sample)
   //Serial.println(IR_AC_Signal_Current);
 
   //  Process next data sample
+  if (!baseline_initialized)
+  {
+    ir_avg_reg = static_cast<int64_t>(sample) << 15;
+    baseline_initialized = true;
+  }
   IR_Average_Estimated = averageDCEstimator(&ir_avg_reg, sample);
   IR_AC_Signal_Current = lowPassFIRFilter(static_cast<int16_t>(std::clamp<int32_t>(sample - IR_Average_Estimated, -32768, 32767)));
 
@@ -106,8 +112,13 @@ bool checkForBeat(int32_t sample)
     negativeEdge = 0;
     IR_AC_Signal_max = 0;
 
-    //if ((IR_AC_Max - IR_AC_Min) > 100 && (IR_AC_Max - IR_AC_Min) < 1000)
-    if ((IR_AC_Max - IR_AC_Min) > 20 && (IR_AC_Max - IR_AC_Min) < 1000)
+    // Relative pulse amplitude tolerates LED current/contact-dependent scaling.
+    // These heuristic limits reject tiny noise and large motion/contact steps;
+    // they are not a calibrated signal-quality classifier.
+    const int32_t amplitude = int32_t(IR_AC_Max) - IR_AC_Min;
+    const int32_t minimum = std::max<int32_t>(20, IR_Average_Estimated / 2000);
+    const int32_t maximum = std::max<int32_t>(minimum + 1, IR_Average_Estimated / 5);
+    if (amplitude > minimum && amplitude < maximum)
     {
       //Heart beat!!!
       beatDetected = true;
@@ -149,17 +160,18 @@ int16_t lowPassFIRFilter(int16_t din)
 {  
   cbuf[offset] = din;
 
-  int32_t z = mul16(FIRCoeffs[11], cbuf[(offset - 11) & 0x1F]);
+  int64_t z = int64_t(FIRCoeffs[11]) * cbuf[(offset - 11) & 0x1F];
   
   for (uint8_t i = 0 ; i < 11 ; i++)
   {
-    z += mul16(FIRCoeffs[i], cbuf[(offset - i) & 0x1F] + cbuf[(offset - 22 + i) & 0x1F]);
+    z += int64_t(FIRCoeffs[i]) *
+         (int32_t(cbuf[(offset - i) & 0x1F]) + cbuf[(offset - 22 + i) & 0x1F]);
   }
 
   offset++;
   offset %= 32; //Wrap condition
 
-  return(z >> 15);
+  return static_cast<int16_t>(std::clamp<int64_t>(z >> 15, -32768, 32767));
 }
 
 //  Integer multiplier
@@ -179,4 +191,5 @@ void resetHeartRate()
     ir_avg_reg = 0;
     std::fill(std::begin(cbuf), std::end(cbuf), 0);
     offset = 0;
+    baseline_initialized = false;
 }

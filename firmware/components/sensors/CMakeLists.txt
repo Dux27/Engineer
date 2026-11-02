@@ -3,7 +3,8 @@ idf_component_register(
         "I2CDevice.cpp"
         "MPU6050.cpp"
         "TPiS1385.cpp"
-        "MAX30105.cpp"
+        "MAX30102.cpp"
+        "GroveGSR.cpp"
     INCLUDE_DIRS "." "${PROJECT_DIR}/main"
     PRIV_REQUIRES esp_timer
     REQUIRES esp_driver_i2c esp_driver_gpio ppg_processing
