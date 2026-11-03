@@ -9,6 +9,7 @@
 namespace
 {
     constexpr char TAG[] = "MAX30102";
+
     constexpr uint8_t REG_INT_STATUS = 0x00; // Reading acknowledges latched flags.
     constexpr uint8_t REG_FIFO_WR_PTR = 0x04; // Next FIFO write position.
     constexpr uint8_t REG_FIFO_OVF = 0x05; // Lost-record counter.
@@ -41,8 +42,10 @@ namespace
     // Heuristic guards, not calibrated contact or signal-quality measurements.
     constexpr uint32_t MIN_SIGNAL = 5000;
     constexpr uint32_t CLIPPING_LEVEL = SAMPLE_MASK * 98 / 100;
-    static_assert(MAX30102_SAMPLE_RATE_HZ == 100,
-                  "Hardware averaging and the beat filter require 100 Hz output");
+
+    // FIFO output rate: 400 ADC conversions/s divided by 4-sample averaging.
+    // Changing this also requires matching register settings and filter design.
+    constexpr uint32_t MAX30102_SAMPLE_RATE_HZ = 100;
 }
 
 esp_err_t MAX30102::init()
@@ -156,7 +159,8 @@ esp_err_t MAX30102::read(Data& data)
 esp_err_t MAX30102::translateRawData(const RawData* raw, Data& out)
 {
     if (!raw) return ESP_ERR_INVALID_ARG;
-    // Reject weak/near-saturated samples. Reset the detector on contact changes
+
+    // Reject weak/saturated samples. Reset the detector on contact changes
     // instead of treating large optical steps as pulse beats.
     if (raw->red < MIN_SIGNAL || raw->red >= CLIPPING_LEVEL)
     {
@@ -164,6 +168,7 @@ esp_err_t MAX30102::translateRawData(const RawData* raw, Data& out)
         out = {};
         return ESP_OK;
     }
+
     ++sample_index_;
     const bool beat = checkForBeat(raw->red);
     if (settling_samples_ < MAX30102_SAMPLE_RATE_HZ * 2)
@@ -171,7 +176,9 @@ esp_err_t MAX30102::translateRawData(const RawData* raw, Data& out)
         ++settling_samples_;
         return ESP_OK;
     }
+
     if (!beat) return ESP_OK;
+
     if (have_previous_beat_)
     {
         const uint64_t interval = (sample_index_ - last_beat_index_) * 1000 / MAX30102_SAMPLE_RATE_HZ;
@@ -181,6 +188,7 @@ esp_err_t MAX30102::translateRawData(const RawData* raw, Data& out)
         out.ppi_ms = out.ppi_valid ? static_cast<uint32_t>(interval) : 0;
         out.hr = out.ppi_valid ? 60000.0f / out.ppi_ms : 0;
     }
+
     out.beat_detected = true;
     last_beat_index_ = sample_index_;
     have_previous_beat_ = true;

@@ -3,6 +3,7 @@
 #include "I2CDevice.hpp"
 #include <cstdint>
 
+
 // HR-only acquisition: one red optical sample per FIFO record.
 // The upstream beat detector has shared state; use one instance from one task.
 class MAX30102 : I2CDevice

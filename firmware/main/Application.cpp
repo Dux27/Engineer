@@ -1,8 +1,5 @@
 #include "Application.hpp"
 #include "GlobalConfig.hpp"
-#include "MAX30102.hpp"
-#include "esp_err.h"
-#include "freertos/projdefs.h"
 
 
 static const char* TAG = "APP";
@@ -10,9 +7,9 @@ static const char* TAG = "APP";
 Application::~Application()
 {
     acc_.reset();
-    ppg_.reset();
+    bvp_.reset();
     temp_.reset();
-    gsr_.reset();
+    eda_.reset();
 
     if (bus_handle_0_ != nullptr)
     {
@@ -73,7 +70,7 @@ esp_err_t Application::init()
     esp_err_t response = ESP_FAIL;
     while (response != ESP_OK)
     {
-        acc_initialized_ = ppg_initialized_ = temp_initialized_ = gsr_initialized_ = false;
+        acc_initialized_ = bvp_initialized_ = temp_initialized_ = eda_initialized_ = false;
         acc_ = std::make_unique<MPU6050>(
             bus_handle_0_, MPU6050_I2C_ADDRESS);
 
@@ -89,19 +86,19 @@ esp_err_t Application::init()
             acc_initialized_ = true;
         }
 
-        ppg_ = std::make_unique<MAX30102>(
+        bvp_ = std::make_unique<MAX30102>(
             bus_handle_0_, MAX30102_I2C_ADDRESS);
 
-        err = ppg_->init();
+        err = bvp_->init();
         if (err != ESP_OK)
         {
             ESP_LOGE(TAG, "Failed to initialize MAX30102: %s",
                     esp_err_to_name(err));
-            ppg_.reset();
+            bvp_.reset();
         }
         else
         {
-            ppg_initialized_ = true;
+            bvp_initialized_ = true;
         }
 
         temp_ = std::make_unique<TPiS1385>(
@@ -119,19 +116,19 @@ esp_err_t Application::init()
             temp_initialized_ = true;
         }
 
-        gsr_ = std::make_unique<GroveGSR>(GROVEGSR_ADC_PIN);
-        err = gsr_->init();
+        eda_ = std::make_unique<GroveGSR>(GROVEGSR_ADC_PIN);
+        err = eda_->init();
         if (err != ESP_OK)
         {
             ESP_LOGE(TAG, "Failed to initialize GroveGSR: %s", esp_err_to_name(err));
-            gsr_.reset();
+            eda_.reset();
         }
         else
         {
-            gsr_initialized_ = true;
+            eda_initialized_ = true;
         }
 
-        response = (acc_initialized_ && ppg_initialized_ && temp_initialized_ && gsr_initialized_)
+        response = (acc_initialized_ && bvp_initialized_ && temp_initialized_ && eda_initialized_)
                        ? ESP_OK : ESP_FAIL;
 
         // Once ready, start draining the PPG FIFO immediately (320 ms capacity).
@@ -144,13 +141,18 @@ esp_err_t Application::init()
 void Application::loop()
 {
     TickType_t wake_time = xTaskGetTickCount();
-    TickType_t last_slow_read = wake_time - pdMS_TO_TICKS(100);
+    TickType_t last_read = wake_time - pdMS_TO_TICKS(1000 / LOG_FREQUENCY_HZ);
+
     while (true)
     {
         const TickType_t now = xTaskGetTickCount();
-        const bool read_slow_sensors = now - last_slow_read >= pdMS_TO_TICKS(100);
-        if (read_slow_sensors) last_slow_read = now;
-        if (read_slow_sensors && acc_initialized_ && acc_ != nullptr)
+        const bool read_sensors = now - last_read >= pdMS_TO_TICKS(1000 / LOG_FREQUENCY_HZ);
+        if (read_sensors)
+        {
+            last_read = now;
+        }
+
+        if (read_sensors && acc_initialized_ && acc_ != nullptr)
         {
             const esp_err_t err = acc_->read(acc_data_);
 
@@ -170,9 +172,9 @@ void Application::loop()
             }
         }
 
-        if (ppg_initialized_ && ppg_ != nullptr)
+        if (bvp_initialized_ && bvp_ != nullptr)
         {
-            const esp_err_t err = ppg_->read(ppg_data_);
+            const esp_err_t err = bvp_->read(bvp_data_);
 
             if (err != ESP_OK && err != ESP_ERR_NOT_FOUND)
             {
@@ -181,19 +183,19 @@ void Application::loop()
             }
             else if (err == ESP_OK)
             {
-                if (ppg_data_.ppi_valid)
+                if (bvp_data_.ppi_valid)
                 {
-                    ESP_LOGI(TAG, "[PPG] HR=%.1f bpm | PPI=%u ms",
-                             ppg_data_.hr, ppg_data_.ppi_ms);
+                    ESP_LOGI(TAG, "[BVP] HR=%.1f bpm | PPI=%u ms",
+                             bvp_data_.hr, bvp_data_.ppi_ms);
                 }
-                else if (ppg_data_.beat_detected)
+                else if (bvp_data_.beat_detected)
                 {
-                    ESP_LOGI(TAG, "[PPG] PPI unavailable (first beat or rejected interval)");
+                    ESP_LOGI(TAG, "[BVP] PPI unavailable (first beat or rejected interval)");
                 }
             }
         }
 
-        if (read_slow_sensors && temp_initialized_ && temp_ != nullptr)
+        if (read_sensors && temp_initialized_ && temp_ != nullptr)
         {
             const esp_err_t err = temp_->read(temp_data_);
 
@@ -211,29 +213,28 @@ void Application::loop()
             }
         }
 
-        if (read_slow_sensors && gsr_initialized_ && gsr_ != nullptr)
+        if (read_sensors && eda_initialized_ && eda_ != nullptr)
         {
-            const esp_err_t err = gsr_->read(gsr_data_);
+            const esp_err_t err = eda_->read(eda_data_);
             if (err != ESP_OK)
             {
                 ESP_LOGE(TAG, "Failed to read GroveGSR: %s", esp_err_to_name(err));
             }
-            else if (gsr_data_.voltage_valid)
+            else if (eda_data_.voltage_valid)
             {
                 ESP_LOGI(TAG, "[EDA] Raw=%u | Voltage=%d mV | Clipped=%s",
-                         static_cast<unsigned>(gsr_data_.raw), gsr_data_.voltage_mv,
-                         gsr_data_.clipped ? "yes" : "no");
+                         static_cast<unsigned>(eda_data_.raw), eda_data_.voltage_mv,
+                         eda_data_.clipped ? "yes" : "no");
             }
             else
             {
                 ESP_LOGI(TAG, "[EDA] Raw=%u | Voltage=unavailable | Clipped=%s",
-                         static_cast<unsigned>(gsr_data_.raw),
-                         gsr_data_.clipped ? "yes" : "no");
+                         static_cast<unsigned>(eda_data_.raw),
+                         eda_data_.clipped ? "yes" : "no");
             }
         }
 
-        // Service PPG at 50 Hz; ACC/TEMP/EDA logging stays at approximately 10 Hz.
-        vTaskDelayUntil(&wake_time, pdMS_TO_TICKS(20));
+        vTaskDelayUntil(&wake_time, pdMS_TO_TICKS(1000 / BVP_LOG_FREQUENCY_HZ));
     }
 }
 

@@ -1,7 +1,5 @@
 #!/usr/bin/env python3
 
-"""Fixed-position ESP32 sensor dashboard. Linux/macOS; Python standard library only."""
-
 import argparse
 import curses
 import errno

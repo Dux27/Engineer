@@ -6,9 +6,11 @@
 #include "TPiS1385.hpp"
 #include "GroveGSR.hpp"
 
+#include "freertos/projdefs.h"
 #include "driver/i2c_master.h"
 #include "driver/i2c_types.h"
 #include "esp_log.h"
+#include "esp_err.h"
 
 #include <memory>
 
@@ -29,17 +31,17 @@ private:
     MPU6050::Data acc_data_{};
     bool acc_initialized_ {false};
 
-    std::unique_ptr<MAX30102> ppg_;
-    MAX30102::Data ppg_data_{};
-    bool ppg_initialized_ {false};
+    std::unique_ptr<MAX30102> bvp_;
+    MAX30102::Data bvp_data_{};
+    bool bvp_initialized_ {false};
 
     std::unique_ptr<TPiS1385> temp_;
     TPiS1385::Data temp_data_{};
     bool temp_initialized_ {false};
 
-    std::unique_ptr<GroveGSR> gsr_;
-    GroveGSR::Data gsr_data_{};
-    bool gsr_initialized_ {false};
+    std::unique_ptr<GroveGSR> eda_;
+    GroveGSR::Data eda_data_{};
+    bool eda_initialized_ {false};
 
     void scanI2CBus(i2c_master_bus_handle_t);
 };
