@@ -17,7 +17,7 @@ text = args.log.read_text(errors="replace")
 samples = []
 stamps = []
 for line in text.splitlines():
-    tag = "PPG_RAW" if args.channel == "red" else "PPG_IR"
+    tag = r"(?:BVP|PPG)_RAW" if args.channel == "red" else r"(?:BVP|PPG)_IR"
     m = re.search(r"\((\d+)\).*\[" + tag + r"\] ([0-9,]+)", line)
     if m:
         batch = [int(x) for x in m[2].split(",")]
@@ -28,7 +28,7 @@ report = {
     "samples": len(x),
     "temperature_factory": [l for l in text.splitlines() if "Factory calibration" in l],
     "warnings_errors": [l for l in text.splitlines() if re.match(r"[EW] \(", l)],
-    "device_hr": [float(v) for v in re.findall(r"\[PPG(?:_HR)?\] HR=([0-9.]+)", text)],
+    "device_hr": [float(v) for v in re.findall(r"\[(?:BVP|PPG)(?:_HR)?\] HR=([0-9.]+)", text)],
 }
 for name, pattern in [
     ("temperature", r"\[TEMP\] SKIN-TEMP=([-0-9.]+).*DEVICE-TEMP: ([-0-9.]+)"),

@@ -14,9 +14,9 @@ Application::~Application()
 {
     acc_.reset();
     adxl_.reset();
-    ppg_.reset();
+    bvp_.reset();
     temp_.reset();
-    gsr_.reset();
+    eda_.reset();
 
     if (bus_handle_0_ != nullptr)
     {
@@ -70,7 +70,7 @@ esp_err_t Application::init()
     ESP_LOGI(TAG, "I2C bus 1 handle: %p", bus_handle_1_);
     scanI2CBus(bus_handle_1_);
 
-    acc_initialized_ = ppg_initialized_ = temp_initialized_ = gsr_initialized_ = false;
+    acc_initialized_ = bvp_initialized_ = temp_initialized_ = eda_initialized_ = false;
     // Prefer the replacement ADXL345; retain the original MPU driver as fallback.
     for (const uint8_t address : {ADXL345_I2C_ADDRESS, ADXL345_ALT_I2C_ADDRESS})
     {
@@ -97,17 +97,17 @@ esp_err_t Application::init()
         }
     }
 
-    ppg_ = std::make_unique<MAX30102>(bus_handle_0_, MAX30102_I2C_ADDRESS);
+    bvp_ = std::make_unique<MAX30102>(bus_handle_0_, MAX30102_I2C_ADDRESS);
 
-    err = ppg_->init();
+    err = bvp_->init();
     if (err != ESP_OK)
     {
         ESP_LOGE(TAG, "Failed to initialize MAX30102: %s", esp_err_to_name(err));
-        ppg_.reset();
+        bvp_.reset();
     }
     else
     {
-        ppg_initialized_ = true;
+        bvp_initialized_ = true;
     }
 
     temp_ = std::make_unique<TPiS1385>(bus_handle_1_, TPIS1385_I2C_ADDRESS);
@@ -123,21 +123,21 @@ esp_err_t Application::init()
         temp_initialized_ = true;
     }
 
-    gsr_ = std::make_unique<GroveGSR>(GROVEGSR_ADC_PIN);
-    err = gsr_->init();
+    eda_ = std::make_unique<GroveGSR>(GROVEGSR_ADC_PIN);
+    err = eda_->init();
     if (err != ESP_OK)
     {
         ESP_LOGE(TAG, "Failed to initialize GroveGSR: %s", esp_err_to_name(err));
-        gsr_.reset();
+        eda_.reset();
     }
     else
     {
-        gsr_initialized_ = true;
+        eda_initialized_ = true;
     }
 
     ESP_LOGI(TAG, "Sensors ready: ADXL345=%s MPU6050=%s MAX30102=%s TEMP=%s EDA_ADC=%s",
-             adxl_ ? "yes" : "no", acc_initialized_ ? "yes" : "no", ppg_initialized_ ? "yes" : "no",
-             temp_initialized_ ? "yes" : "no", gsr_initialized_ ? "yes" : "no");
+             adxl_ ? "yes" : "no", acc_initialized_ ? "yes" : "no", bvp_initialized_ ? "yes" : "no",
+             temp_initialized_ ? "yes" : "no", eda_initialized_ ? "yes" : "no");
     // Missing sensors must not block acquisition from sensors that did initialize.
     // Reboot after connecting a missing sensor with power off.
 
@@ -147,12 +147,12 @@ esp_err_t Application::init()
 void Application::loop()
 {
     TickType_t wake_time = xTaskGetTickCount();
-    TickType_t last_slow_read = wake_time - pdMS_TO_TICKS(100);
+    TickType_t last_slow_read = wake_time - pdMS_TO_TICKS(1000 / LOG_FREQUENCY_HZ);
     TickType_t last_quality_log = wake_time;
     TickType_t last_diagnostic_log = wake_time;
-    uint32_t ppg_samples_since_log = 0;
-    uint32_t max_ppg_processing_us = 0, max_ppg_gap_us = 0;
-    int64_t last_ppg_poll_us = esp_timer_get_time();
+    uint32_t bvp_samples_since_log = 0;
+    uint32_t max_bvp_processing_us = 0, max_bvp_gap_us = 0;
+    int64_t last_bvp_poll_us = esp_timer_get_time();
     while (true)
     {
         const TickType_t now = xTaskGetTickCount();
@@ -161,14 +161,14 @@ void Application::loop()
             last_diagnostic_log = now;
             ESP_LOGI(TAG,
                      "[DIAG] stack_free_min=%u heap_free=%lu heap_min=%lu "
-                     "ppg_processing_max_us=%lu ppg_poll_gap_max_us=%lu",
+                     "bvp_processing_max_us=%lu bvp_poll_gap_max_us=%lu",
                      static_cast<unsigned>(uxTaskGetStackHighWaterMark(nullptr)),
                      static_cast<unsigned long>(esp_get_free_heap_size()),
                      static_cast<unsigned long>(esp_get_minimum_free_heap_size()),
-                     static_cast<unsigned long>(max_ppg_processing_us),
-                     static_cast<unsigned long>(max_ppg_gap_us));
+                     static_cast<unsigned long>(max_bvp_processing_us),
+                     static_cast<unsigned long>(max_bvp_gap_us));
         }
-        const bool read_slow_sensors = now - last_slow_read >= pdMS_TO_TICKS(100);
+        const bool read_slow_sensors = now - last_slow_read >= pdMS_TO_TICKS(1000 / LOG_FREQUENCY_HZ);
         if (read_slow_sensors)
             last_slow_read = now;
         if (read_slow_sensors && adxl_ != nullptr)
@@ -195,16 +195,16 @@ void Application::loop()
             }
         }
 
-        if (ppg_initialized_ && ppg_ != nullptr)
+        if (bvp_initialized_ && bvp_ != nullptr)
         {
             const int64_t poll_us = esp_timer_get_time();
-            const uint32_t gap_us = static_cast<uint32_t>(poll_us - last_ppg_poll_us);
-            if (gap_us > max_ppg_gap_us)
-                max_ppg_gap_us = gap_us;
-            last_ppg_poll_us = poll_us;
-            const esp_err_t err = ppg_->read(ppg_data_);
-            if (ppg_data_.processing_us > max_ppg_processing_us)
-                max_ppg_processing_us = ppg_data_.processing_us;
+            const uint32_t gap_us = static_cast<uint32_t>(poll_us - last_bvp_poll_us);
+            if (gap_us > max_bvp_gap_us)
+                max_bvp_gap_us = gap_us;
+            last_bvp_poll_us = poll_us;
+            const esp_err_t err = bvp_->read(bvp_data_);
+            if (bvp_data_.processing_us > max_bvp_processing_us)
+                max_bvp_processing_us = bvp_data_.processing_us;
 
             if (err != ESP_OK && err != ESP_ERR_NOT_FOUND)
             {
@@ -212,55 +212,55 @@ void Application::loop()
             }
             else if (err == ESP_OK)
             {
-                ppg_samples_since_log += ppg_data_.raw_count;
+                bvp_samples_since_log += bvp_data_.raw_count;
                 if (now - last_quality_log >= pdMS_TO_TICKS(1000))
                 {
-                    const float measured_rate = static_cast<float>(ppg_samples_since_log) *
+                    const float measured_rate = static_cast<float>(bvp_samples_since_log) *
                                                 configTICK_RATE_HZ /
                                                 static_cast<float>(now - last_quality_log);
-                    ppg_samples_since_log = 0;
+                    bvp_samples_since_log = 0;
                     last_quality_log = now;
                     ESP_LOGI(TAG,
-                             "[PPG_QUALITY] status=%s periodicity=%.3f relative_ac=%.6f channel=IR "
+                             "[BVP_QUALITY] status=%s periodicity=%.3f relative_ac=%.6f channel=IR "
                              "rate=%.1f Hz detector_rate=%.3f Hz",
-                             ppg_data_.quality_valid ? "periodic" : "unreliable",
-                             ppg_data_.periodicity, ppg_data_.relative_ac, measured_rate,
-                             ppg_data_.detector_rate_hz);
+                             bvp_data_.quality_valid ? "periodic" : "unreliable",
+                             bvp_data_.periodicity, bvp_data_.relative_ac, measured_rate,
+                             bvp_data_.detector_rate_hz);
                 }
-                if (PPG_RAW_DIAGNOSTICS && ppg_data_.raw_count)
+                if (BVP_RAW_DIAGNOSTICS && bvp_data_.raw_count)
                 {
                     char line[32 * 8 + 1]{};
                     size_t used = 0;
-                    for (unsigned i = 0; i < ppg_data_.raw_count; ++i)
+                    for (unsigned i = 0; i < bvp_data_.raw_count; ++i)
                     {
                         const int length =
                             snprintf(line + used, sizeof(line) - used, "%s%lu", i ? "," : "",
-                                     static_cast<unsigned long>(ppg_data_.raw_red[i]));
+                                     static_cast<unsigned long>(bvp_data_.raw_red[i]));
                         if (length < 0 || static_cast<size_t>(length) >= sizeof(line) - used)
                             break;
                         used += static_cast<size_t>(length);
                     }
-                    ESP_LOGI(TAG, "[PPG_RAW] %s", line);
+                    ESP_LOGI(TAG, "[BVP_RAW] %s", line);
                     used = 0;
-                    for (unsigned i = 0; i < ppg_data_.raw_count; ++i)
+                    for (unsigned i = 0; i < bvp_data_.raw_count; ++i)
                     {
                         const int length =
                             snprintf(line + used, sizeof(line) - used, "%s%lu", i ? "," : "",
-                                     static_cast<unsigned long>(ppg_data_.raw_ir[i]));
+                                     static_cast<unsigned long>(bvp_data_.raw_ir[i]));
                         if (length < 0 || static_cast<size_t>(length) >= sizeof(line) - used)
                             break;
                         used += static_cast<size_t>(length);
                     }
-                    ESP_LOGI(TAG, "[PPG_IR] %s", line);
+                    ESP_LOGI(TAG, "[BVP_IR] %s", line);
                 }
-                if (ppg_data_.hr_updated && ppg_data_.hr_valid)
+                if (bvp_data_.hr_updated && bvp_data_.hr_valid)
                 {
-                    ESP_LOGI(TAG, "[PPG_HR] HR=%.1f bpm | SOURCE=IR-periodicity | MEDIAN=%u",
-                             ppg_data_.hr, ppg_data_.hr_window_size);
+                    ESP_LOGI(TAG, "[BVP_HR] HR=%.1f bpm | SOURCE=IR-periodicity | MEDIAN=%u",
+                             bvp_data_.hr, bvp_data_.hr_window_size);
                 }
-                if (ppg_data_.ppi_valid)
+                if (bvp_data_.ppi_valid)
                 {
-                    ESP_LOGI(TAG, "[PPG_PPI] PPI=%u ms", ppg_data_.ppi_ms);
+                    ESP_LOGI(TAG, "[BVP_PPI] PPI=%u ms", bvp_data_.ppi_ms);
                 }
             }
         }
@@ -280,28 +280,28 @@ void Application::loop()
             }
         }
 
-        if (read_slow_sensors && gsr_initialized_ && gsr_ != nullptr)
+        if (read_slow_sensors && eda_initialized_ && eda_ != nullptr)
         {
-            const esp_err_t err = gsr_->read(gsr_data_);
+            const esp_err_t err = eda_->read(eda_data_);
             if (err != ESP_OK)
             {
                 ESP_LOGE(TAG, "Failed to read GroveGSR: %s", esp_err_to_name(err));
             }
-            else if (gsr_data_.voltage_valid)
+            else if (eda_data_.voltage_valid)
             {
                 ESP_LOGI(TAG, "[EDA] Raw=%u | Voltage=%d mV | Clipped=%s",
-                         static_cast<unsigned>(gsr_data_.raw), gsr_data_.voltage_mv,
-                         gsr_data_.clipped ? "yes" : "no");
+                         static_cast<unsigned>(eda_data_.raw), eda_data_.voltage_mv,
+                         eda_data_.clipped ? "yes" : "no");
             }
             else
             {
                 ESP_LOGI(TAG, "[EDA] Raw=%u | Voltage=unavailable | Clipped=%s",
-                         static_cast<unsigned>(gsr_data_.raw), gsr_data_.clipped ? "yes" : "no");
+                         static_cast<unsigned>(eda_data_.raw), eda_data_.clipped ? "yes" : "no");
             }
         }
 
         // Service PPG at 50 Hz; ACC/TEMP/EDA logging stays at approximately 10 Hz.
-        vTaskDelayUntil(&wake_time, pdMS_TO_TICKS(20));
+        vTaskDelayUntil(&wake_time, pdMS_TO_TICKS(1000 / BVP_LOG_FREQUENCY_HZ));
     }
 }
 

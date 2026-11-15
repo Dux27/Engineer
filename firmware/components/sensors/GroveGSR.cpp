@@ -7,7 +7,7 @@ namespace
 
     // ADC resolution: 12 bits, 0..4095 counts.
     constexpr adc_bitwidth_t BIT_WIDTH = ADC_BITWIDTH_12;
-    constexpr int ADC_MAX = (1 << 12) - 1;
+    constexpr int ADC_MAX = (1 << BIT_WIDTH) - 1;
 
     // ADC attenuation: 12 dB, approximately 0..3100 mV on ESP32-S3.
     constexpr adc_atten_t ATTENUATION = ADC_ATTEN_DB_12;

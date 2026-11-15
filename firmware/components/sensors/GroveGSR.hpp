@@ -16,15 +16,15 @@ public:
     struct RawData
     {
         uint16_t adc = 0;      // Averaged ADC counts, 0..4095.
-        bool clipped = false; // At least one sample reached an ADC limit.
+        bool clipped = false;  // At least one sample reached an ADC limit.
     };
 
     struct Data
     {
         uint16_t raw = 0;            // Averaged ADC counts, 0..4095.
-        int voltage_mv = 0;         // mV; valid when voltage_valid is true.
-        bool voltage_valid = false; // ADC calibration and conversion succeeded.
-        bool clipped = false;       // At least one sample reached an ADC limit.
+        int voltage_mv = 0;          // mV; valid when voltage_valid is true.
+        bool voltage_valid = false;  // ADC calibration and conversion succeeded.
+        bool clipped = false;        // At least one sample reached an ADC limit.
     };
 
     explicit GroveGSR(gpio_num_t pin);

@@ -1,7 +1,5 @@
 #!/usr/bin/env python3
 
-"""Fixed-position ESP32 sensor dashboard. Linux/macOS; Python standard library only."""
-
 import argparse
 import curses
 import errno
@@ -26,8 +24,8 @@ ADXL_ACC = re.compile(
     + r" \| SENSOR=ADXL345"
 )
 TEMP = re.compile(r"\[TEMP\] SKIN-TEMP=" + NUMBER + r" C \| DEVICE-TEMP: " + NUMBER)
-PPG = re.compile(r"\[PPG\] HR=" + NUMBER + r" bpm \| PPI=(\d+) ms")
-PPG_HR = re.compile(r"\[PPG_HR\] HR=" + NUMBER + r" bpm")
+BVP = re.compile(r"\[(?:BVP|PPG)\] HR=" + NUMBER + r" bpm \| PPI=(\d+) ms")
+BVP_HR = re.compile(r"\[(?:BVP|PPG)_HR\] HR=" + NUMBER + r" bpm")
 EDA = re.compile(
     r"\[EDA\] Raw=(\d+) \| Voltage=(?:(\d+) mV|unavailable) \| Clipped=(yes|no)"
 )
@@ -53,7 +51,7 @@ class Dashboard:
         self.device_ms = None
         self.notice = "No warnings or errors"
         self.lines = 0
-        self.ppg_quality = "waiting"
+        self.bvp_quality = "waiting"
 
     def feed(self, text, now):
         self.buffer += text
@@ -72,11 +70,11 @@ class Dashboard:
             if self.device_ms is not None and device_ms < self.device_ms:
                 self.sensors = {name: Sensor() for name in NAMES}
                 self.notice = "Board restarted; previous readings cleared"
-                self.ppg_quality = "waiting"
+                self.bvp_quality = "waiting"
             self.device_ms = device_ms
         for name, pattern in (
             ("ADXL345", ADXL_ACC),
-            ("MAX30102", PPG),
+            ("MAX30102", BVP),
             ("TPiS1385", TEMP),
         ):
             match = pattern.search(line)
@@ -86,7 +84,7 @@ class Dashboard:
                 )
                 return
         eda = EDA.search(line)
-        waveform_hr = PPG_HR.search(line)
+        waveform_hr = BVP_HR.search(line)
         if waveform_hr:
             self.sensors["MAX30102"] = Sensor(
                 (float(waveform_hr[1]), None),
@@ -103,18 +101,18 @@ class Dashboard:
                 (int(raw), int(voltage) if voltage is not None else None), now, status
             )
             return
-        if "[PPG] PPI unavailable" in line:
+        if "[BVP] PPI unavailable" in line or "[PPG] PPI unavailable" in line:
             self.sensors["MAX30102"].status = "Beat candidate; no valid interval"
-        if "[PPG_QUALITY]" in line:
+        if "[BVP_QUALITY]" in line or "[PPG_QUALITY]" in line:
             quality = re.search(r"status=(\w+).*periodicity=([-0-9.]+)", line)
             if quality:
-                self.ppg_quality = f"{quality[1]} r={float(quality[2]):.2f}"
+                self.bvp_quality = f"{quality[1]} r={float(quality[2]):.2f}"
             if "status=unreliable" in line:
                 self.sensors["MAX30102"].values = None
                 self.sensors[
                     "MAX30102"
                 ].status = (
-                    "Weak/nonperiodic PPG; HR unavailable (or initial 8 s settling)"
+                    "Weak/nonperiodic BVP; HR unavailable (or initial 8 s settling)"
                 )
             else:
                 self.sensors[
@@ -175,7 +173,7 @@ def draw(screen, model, title, now, received):
             rows.append(f"  Skin: {skin:.2f} °C  |  Device: {device:.2f} °C")
         rows += ["  " + sensor.status, ""]
     rows += [
-        "PPG age tracks accepted HR estimates; PPI may be unavailable independently.",
+        "BVP age tracks accepted HR estimates; PPI may be unavailable independently.",
         "Latest warning/error (retained):",
         "  " + model.notice,
     ]
@@ -223,7 +221,7 @@ def demo_lines(tick):
         f"I ({stamp}) APP: [EDA] Raw=1800 | Voltage=1360 mV | Clipped=no",
     ]
     if tick % 8 == 0:
-        lines.append(f"I ({stamp}) APP: [PPG] HR=75.0 bpm | PPI=800 ms")
+        lines.append(f"I ({stamp}) APP: [BVP] HR=75.0 bpm | PPI=800 ms")
     return "\n".join(lines) + "\n"
 
 
@@ -288,7 +286,7 @@ def plain_snapshot(model, now):
     )
     acc = model.sensors["ADXL345"].values
     acceleration = ",".join(f"{v:.2f}" for v in acc[:3]) if acc else "--"
-    return f"{hr} | quality: {model.ppg_quality} | TEMP: {temperature} | EDA: {voltage} | ACC: {acceleration}"
+    return f"{hr} | quality: {model.bvp_quality} | TEMP: {temperature} | EDA: {voltage} | ACC: {acceleration}"
 
 
 def run_plain(args, fd, logfile=None):
