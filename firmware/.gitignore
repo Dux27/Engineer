@@ -1,0 +1,6 @@
+# Local ESP-IDF output and temporary SDK configuration snapshots.
+/build*/
+/sdkconfig.old
+
+# Raw recordings, serial logs, binaries and exploratory analysis stay local.
+/verification/
