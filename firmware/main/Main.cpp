@@ -3,6 +3,7 @@
 extern "C" void app_main()
 {
     Application app;
-    app.init();
+    if (app.init() != ESP_OK)
+        return;
     app.loop();
 }

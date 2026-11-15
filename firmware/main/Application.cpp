@@ -3,6 +3,7 @@
 #include "MAX30102.hpp"
 #include "esp_err.h"
 #include "freertos/projdefs.h"
+#include <initializer_list>
 
 
 static const char* TAG = "APP";
@@ -10,6 +11,7 @@ static const char* TAG = "APP";
 Application::~Application()
 {
     acc_.reset();
+    adxl_.reset();
     ppg_.reset();
     temp_.reset();
     gsr_.reset();
@@ -36,13 +38,11 @@ esp_err_t Application::init()
     bus_config_0.glitch_ignore_cnt = 7;
     bus_config_0.flags.enable_internal_pullup = true;
 
-    esp_err_t err = i2c_new_master_bus(
-        &bus_config_0, &bus_handle_0_);
+    esp_err_t err = i2c_new_master_bus(&bus_config_0, &bus_handle_0_);
 
     if (err != ESP_OK)
     {
-        ESP_LOGE(TAG, "Failed to initialize I2C bus 0: %s",
-                esp_err_to_name(err));
+        ESP_LOGE(TAG, "Failed to initialize I2C bus 0: %s", esp_err_to_name(err));
         return err;
     }
 
@@ -57,88 +57,89 @@ esp_err_t Application::init()
     bus_config_1.glitch_ignore_cnt = 7;
     bus_config_1.flags.enable_internal_pullup = true;
 
-    err = i2c_new_master_bus(
-        &bus_config_1, &bus_handle_1_);
+    err = i2c_new_master_bus(&bus_config_1, &bus_handle_1_);
 
     if (err != ESP_OK)
     {
-        ESP_LOGE(TAG, "Failed to initialize I2C bus 1: %s",
-                esp_err_to_name(err));
+        ESP_LOGE(TAG, "Failed to initialize I2C bus 1: %s", esp_err_to_name(err));
         return err;
     }
 
     ESP_LOGI(TAG, "I2C bus 1 handle: %p", bus_handle_1_);
     scanI2CBus(bus_handle_1_);
 
-    esp_err_t response = ESP_FAIL;
-    while (response != ESP_OK)
+    acc_initialized_ = ppg_initialized_ = temp_initialized_ = gsr_initialized_ = false;
+    // Prefer the replacement ADXL345; retain the original MPU driver as fallback.
+    for (const uint8_t address : {ADXL345_I2C_ADDRESS, ADXL345_ALT_I2C_ADDRESS})
     {
-        acc_initialized_ = ppg_initialized_ = temp_initialized_ = gsr_initialized_ = false;
-        acc_ = std::make_unique<MPU6050>(
-            bus_handle_0_, MPU6050_I2C_ADDRESS);
+        if (i2c_master_probe(bus_handle_0_, address, 20) != ESP_OK)
+            continue;
+        adxl_ = std::make_unique<ADXL345>(bus_handle_0_, address);
+        if (adxl_->init() == ESP_OK)
+            break;
+        adxl_.reset();
+    }
+    if (adxl_ == nullptr)
+    {
+        acc_ = std::make_unique<MPU6050>(bus_handle_0_, MPU6050_I2C_ADDRESS);
 
         err = acc_->init();
         if (err != ESP_OK)
         {
-            ESP_LOGE(TAG, "Failed to initialize MPU6050: %s",
-                    esp_err_to_name(err));
+            ESP_LOGE(TAG, "Failed to initialize MPU6050: %s", esp_err_to_name(err));
             acc_.reset();
         }
         else
         {
             acc_initialized_ = true;
         }
-
-        ppg_ = std::make_unique<MAX30102>(
-            bus_handle_0_, MAX30102_I2C_ADDRESS);
-
-        err = ppg_->init();
-        if (err != ESP_OK)
-        {
-            ESP_LOGE(TAG, "Failed to initialize MAX30102: %s",
-                    esp_err_to_name(err));
-            ppg_.reset();
-        }
-        else
-        {
-            ppg_initialized_ = true;
-        }
-
-        temp_ = std::make_unique<TPiS1385>(
-            bus_handle_1_, TPIS1385_I2C_ADDRESS);
-
-        err = temp_->init();
-        if (err != ESP_OK)
-        {
-            ESP_LOGE(TAG, "Failed to initialize TPiS1385: %s",
-                    esp_err_to_name(err));
-            temp_.reset();
-        }
-        else
-        {
-            temp_initialized_ = true;
-        }
-
-        gsr_ = std::make_unique<GroveGSR>(GROVEGSR_ADC_PIN);
-        err = gsr_->init();
-        if (err != ESP_OK)
-        {
-            ESP_LOGE(TAG, "Failed to initialize GroveGSR: %s", esp_err_to_name(err));
-            gsr_.reset();
-        }
-        else
-        {
-            gsr_initialized_ = true;
-        }
-
-        response = (acc_initialized_ && ppg_initialized_ && temp_initialized_ && gsr_initialized_)
-                       ? ESP_OK : ESP_FAIL;
-
-        // Once ready, start draining the PPG FIFO immediately (320 ms capacity).
-        if (response != ESP_OK) vTaskDelay(pdMS_TO_TICKS(1000));
     }
 
-    return response;
+    ppg_ = std::make_unique<MAX30102>(bus_handle_0_, MAX30102_I2C_ADDRESS);
+
+    err = ppg_->init();
+    if (err != ESP_OK)
+    {
+        ESP_LOGE(TAG, "Failed to initialize MAX30102: %s", esp_err_to_name(err));
+        ppg_.reset();
+    }
+    else
+    {
+        ppg_initialized_ = true;
+    }
+
+    temp_ = std::make_unique<TPiS1385>(bus_handle_1_, TPIS1385_I2C_ADDRESS);
+
+    err = temp_->init();
+    if (err != ESP_OK)
+    {
+        ESP_LOGE(TAG, "Failed to initialize TPiS1385: %s", esp_err_to_name(err));
+        temp_.reset();
+    }
+    else
+    {
+        temp_initialized_ = true;
+    }
+
+    gsr_ = std::make_unique<GroveGSR>(GROVEGSR_ADC_PIN);
+    err = gsr_->init();
+    if (err != ESP_OK)
+    {
+        ESP_LOGE(TAG, "Failed to initialize GroveGSR: %s", esp_err_to_name(err));
+        gsr_.reset();
+    }
+    else
+    {
+        gsr_initialized_ = true;
+    }
+
+    ESP_LOGI(TAG, "Sensors ready: ADXL345=%s MPU6050=%s MAX30102=%s TEMP=%s EDA_ADC=%s",
+             adxl_ ? "yes" : "no", acc_initialized_ ? "yes" : "no", ppg_initialized_ ? "yes" : "no",
+             temp_initialized_ ? "yes" : "no", gsr_initialized_ ? "yes" : "no");
+    // Missing sensors must not block acquisition from sensors that did initialize.
+    // Reboot after connecting a missing sensor with power off.
+
+    return ESP_OK;
 }
 
 void Application::loop()
@@ -150,6 +151,15 @@ void Application::loop()
         const TickType_t now = xTaskGetTickCount();
         const bool read_slow_sensors = now - last_slow_read >= pdMS_TO_TICKS(100);
         if (read_slow_sensors) last_slow_read = now;
+        if (read_slow_sensors && adxl_ != nullptr)
+        {
+            const esp_err_t err = adxl_->read(adxl_data_);
+            if (err != ESP_OK)
+                ESP_LOGE(TAG, "Failed to read ADXL345: %s", esp_err_to_name(err));
+            else
+                ESP_LOGI(TAG, "[ACC] ACC: X=%.3f Y=%.3f Z=%.3f | SENSOR=ADXL345", adxl_data_.acc_x,
+                         adxl_data_.acc_y, adxl_data_.acc_z);
+        }
         if (read_slow_sensors && acc_initialized_ && acc_ != nullptr)
         {
             const esp_err_t err = acc_->read(acc_data_);

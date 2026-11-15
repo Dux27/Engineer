@@ -2,6 +2,7 @@
 
 #include "GlobalConfig.hpp"
 #include "MPU6050.hpp"
+#include "ADXL345.hpp"
 #include "MAX30102.hpp"
 #include "TPiS1385.hpp"
 #include "GroveGSR.hpp"
@@ -12,7 +13,6 @@
 
 #include <memory>
 
-
 class Application
 {
 public:
@@ -21,25 +21,28 @@ public:
 
     esp_err_t init();
     void loop();
+
 private:
     i2c_master_bus_handle_t bus_handle_0_ = nullptr;
     i2c_master_bus_handle_t bus_handle_1_ = nullptr;
 
     std::unique_ptr<MPU6050> acc_;
     MPU6050::Data acc_data_{};
-    bool acc_initialized_ {false};
+    bool acc_initialized_{false};
+    std::unique_ptr<ADXL345> adxl_;
+    ADXL345::Data adxl_data_{};
 
     std::unique_ptr<MAX30102> ppg_;
     MAX30102::Data ppg_data_{};
-    bool ppg_initialized_ {false};
+    bool ppg_initialized_{false};
 
     std::unique_ptr<TPiS1385> temp_;
     TPiS1385::Data temp_data_{};
-    bool temp_initialized_ {false};
+    bool temp_initialized_{false};
 
     std::unique_ptr<GroveGSR> gsr_;
     GroveGSR::Data gsr_data_{};
-    bool gsr_initialized_ {false};
+    bool gsr_initialized_{false};
 
     void scanI2CBus(i2c_master_bus_handle_t);
 };

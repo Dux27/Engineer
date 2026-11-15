@@ -2,6 +2,7 @@ idf_component_register(
     SRCS
         "I2CDevice.cpp"
         "MPU6050.cpp"
+        "ADXL345.cpp"
         "TPiS1385.cpp"
         "MAX30102.cpp"
         "GroveGSR.cpp"
