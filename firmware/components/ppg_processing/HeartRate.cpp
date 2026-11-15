@@ -116,7 +116,9 @@ bool checkForBeat(int32_t sample)
     // These heuristic limits reject tiny noise and large motion/contact steps;
     // they are not a calibrated signal-quality classifier.
     const int32_t amplitude = int32_t(IR_AC_Max) - IR_AC_Min;
-    const int32_t minimum = std::max<int32_t>(20, IR_Average_Estimated / 2000);
+    // Candidate sensitivity for weak reflective pulses; quality is checked
+    // independently over eight seconds before publishing any HR.
+    const int32_t minimum = std::max<int32_t>(10, IR_Average_Estimated / 5000);
     const int32_t maximum = std::max<int32_t>(minimum + 1, IR_Average_Estimated / 5);
     if (amplitude > minimum && amplitude < maximum)
     {

@@ -5,7 +5,6 @@
 #include "soc/gpio_num.h"
 #include "soc/gpio_struct.h"
 
-
 // === I2C CONFIGURATION ===
 inline constexpr gpio_num_t I2C_0_SDA_GPIO = GPIO_NUM_5;
 inline constexpr gpio_num_t I2C_0_SCL_GPIO = GPIO_NUM_6;
@@ -30,9 +29,12 @@ inline constexpr uint8_t TPIS1385_I2C_ADDRESS = 0x0D;
 
 // [PPG] MAX30102
 inline constexpr uint8_t MAX30102_I2C_ADDRESS = 0x57;
-// FIFO output rate: 400 ADC conversions/s divided by 4-sample averaging.
-// Changing this also requires matching register settings and filter design.
+// FIFO: 400 conversions/s / 2 = 200 Hz. Anti-alias FIR decimates to 100 Hz
+// for the existing beat detector; raw diagnostic records remain at 200 Hz.
+inline constexpr uint32_t MAX30102_FIFO_RATE_HZ = 200;
 inline constexpr uint32_t MAX30102_SAMPLE_RATE_HZ = 100;
+// Enable temporarily for waveform recordings; normal use logs quality at 1 Hz.
+inline constexpr bool PPG_RAW_DIAGNOSTICS = false;
 
 // [EDA] Seeed Studio Grove GSR
 inline constexpr gpio_num_t GROVEGSR_ADC_PIN = GPIO_NUM_2;

@@ -3,10 +3,12 @@
 #include "MAX30102.hpp"
 #include "esp_err.h"
 #include "freertos/projdefs.h"
+#include <cstdio>
 #include <initializer_list>
+#include "esp_system.h"
+#include "esp_timer.h"
 
-
-static const char* TAG = "APP";
+static const char *TAG = "APP";
 
 Application::~Application()
 {
@@ -146,11 +148,29 @@ void Application::loop()
 {
     TickType_t wake_time = xTaskGetTickCount();
     TickType_t last_slow_read = wake_time - pdMS_TO_TICKS(100);
+    TickType_t last_quality_log = wake_time;
+    TickType_t last_diagnostic_log = wake_time;
+    uint32_t ppg_samples_since_log = 0;
+    uint32_t max_ppg_processing_us = 0, max_ppg_gap_us = 0;
+    int64_t last_ppg_poll_us = esp_timer_get_time();
     while (true)
     {
         const TickType_t now = xTaskGetTickCount();
+        if (now - last_diagnostic_log >= pdMS_TO_TICKS(10000))
+        {
+            last_diagnostic_log = now;
+            ESP_LOGI(TAG,
+                     "[DIAG] stack_free_min=%u heap_free=%lu heap_min=%lu "
+                     "ppg_processing_max_us=%lu ppg_poll_gap_max_us=%lu",
+                     static_cast<unsigned>(uxTaskGetStackHighWaterMark(nullptr)),
+                     static_cast<unsigned long>(esp_get_free_heap_size()),
+                     static_cast<unsigned long>(esp_get_minimum_free_heap_size()),
+                     static_cast<unsigned long>(max_ppg_processing_us),
+                     static_cast<unsigned long>(max_ppg_gap_us));
+        }
         const bool read_slow_sensors = now - last_slow_read >= pdMS_TO_TICKS(100);
-        if (read_slow_sensors) last_slow_read = now;
+        if (read_slow_sensors)
+            last_slow_read = now;
         if (read_slow_sensors && adxl_ != nullptr)
         {
             const esp_err_t err = adxl_->read(adxl_data_);
@@ -166,39 +186,81 @@ void Application::loop()
 
             if (err != ESP_OK)
             {
-                ESP_LOGE(TAG, "Failed to read MPU6050: %s",
-                         esp_err_to_name(err));
+                ESP_LOGE(TAG, "Failed to read MPU6050: %s", esp_err_to_name(err));
             }
             else
             {
-                ESP_LOGI(TAG,
-                         "[ACC] ACC: X=%.3f Y=%.3f Z=%.3f | DEVICE-TEMP=%.2f C",
-                         acc_data_.acc_x,
-                         acc_data_.acc_y,
-                         acc_data_.acc_z,
-                         acc_data_.temperature);
+                ESP_LOGI(TAG, "[ACC] ACC: X=%.3f Y=%.3f Z=%.3f | DEVICE-TEMP=%.2f C",
+                         acc_data_.acc_x, acc_data_.acc_y, acc_data_.acc_z, acc_data_.temperature);
             }
         }
 
         if (ppg_initialized_ && ppg_ != nullptr)
         {
+            const int64_t poll_us = esp_timer_get_time();
+            const uint32_t gap_us = static_cast<uint32_t>(poll_us - last_ppg_poll_us);
+            if (gap_us > max_ppg_gap_us)
+                max_ppg_gap_us = gap_us;
+            last_ppg_poll_us = poll_us;
             const esp_err_t err = ppg_->read(ppg_data_);
+            if (ppg_data_.processing_us > max_ppg_processing_us)
+                max_ppg_processing_us = ppg_data_.processing_us;
 
             if (err != ESP_OK && err != ESP_ERR_NOT_FOUND)
             {
-                ESP_LOGE(TAG, "Failed to read MAX30102: %s",
-                         esp_err_to_name(err));
+                ESP_LOGE(TAG, "Failed to read MAX30102: %s", esp_err_to_name(err));
             }
             else if (err == ESP_OK)
             {
+                ppg_samples_since_log += ppg_data_.raw_count;
+                if (now - last_quality_log >= pdMS_TO_TICKS(1000))
+                {
+                    const float measured_rate = static_cast<float>(ppg_samples_since_log) *
+                                                configTICK_RATE_HZ /
+                                                static_cast<float>(now - last_quality_log);
+                    ppg_samples_since_log = 0;
+                    last_quality_log = now;
+                    ESP_LOGI(TAG,
+                             "[PPG_QUALITY] status=%s periodicity=%.3f relative_ac=%.6f channel=IR "
+                             "rate=%.1f Hz detector_rate=%.3f Hz",
+                             ppg_data_.quality_valid ? "periodic" : "unreliable",
+                             ppg_data_.periodicity, ppg_data_.relative_ac, measured_rate,
+                             ppg_data_.detector_rate_hz);
+                }
+                if (PPG_RAW_DIAGNOSTICS && ppg_data_.raw_count)
+                {
+                    char line[32 * 8 + 1]{};
+                    size_t used = 0;
+                    for (unsigned i = 0; i < ppg_data_.raw_count; ++i)
+                    {
+                        const int length =
+                            snprintf(line + used, sizeof(line) - used, "%s%lu", i ? "," : "",
+                                     static_cast<unsigned long>(ppg_data_.raw_red[i]));
+                        if (length < 0 || static_cast<size_t>(length) >= sizeof(line) - used)
+                            break;
+                        used += static_cast<size_t>(length);
+                    }
+                    ESP_LOGI(TAG, "[PPG_RAW] %s", line);
+                    used = 0;
+                    for (unsigned i = 0; i < ppg_data_.raw_count; ++i)
+                    {
+                        const int length =
+                            snprintf(line + used, sizeof(line) - used, "%s%lu", i ? "," : "",
+                                     static_cast<unsigned long>(ppg_data_.raw_ir[i]));
+                        if (length < 0 || static_cast<size_t>(length) >= sizeof(line) - used)
+                            break;
+                        used += static_cast<size_t>(length);
+                    }
+                    ESP_LOGI(TAG, "[PPG_IR] %s", line);
+                }
+                if (ppg_data_.hr_updated && ppg_data_.hr_valid)
+                {
+                    ESP_LOGI(TAG, "[PPG_HR] HR=%.1f bpm | SOURCE=IR-periodicity | MEDIAN=%u",
+                             ppg_data_.hr, ppg_data_.hr_window_size);
+                }
                 if (ppg_data_.ppi_valid)
                 {
-                    ESP_LOGI(TAG, "[PPG] HR=%.1f bpm | PPI=%u ms",
-                             ppg_data_.hr, ppg_data_.ppi_ms);
-                }
-                else if (ppg_data_.beat_detected)
-                {
-                    ESP_LOGI(TAG, "[PPG] PPI unavailable (first beat or rejected interval)");
+                    ESP_LOGI(TAG, "[PPG_PPI] PPI=%u ms", ppg_data_.ppi_ms);
                 }
             }
         }
@@ -209,15 +271,12 @@ void Application::loop()
 
             if (err != ESP_OK)
             {
-                ESP_LOGE(TAG, "Failed to read TPiS1385: %s",
-                         esp_err_to_name(err));
+                ESP_LOGE(TAG, "Failed to read TPiS1385: %s", esp_err_to_name(err));
             }
             else
             {
-                ESP_LOGI(TAG,
-                         "[TEMP] SKIN-TEMP=%.2f C | DEVICE-TEMP: %.2f C",
-                         temp_data_.skin_temperature,
-                         temp_data_.ambient_temperature);
+                ESP_LOGI(TAG, "[TEMP] SKIN-TEMP=%.2f C | DEVICE-TEMP: %.2f C",
+                         temp_data_.skin_temperature, temp_data_.ambient_temperature);
             }
         }
 
@@ -237,8 +296,7 @@ void Application::loop()
             else
             {
                 ESP_LOGI(TAG, "[EDA] Raw=%u | Voltage=unavailable | Clipped=%s",
-                         static_cast<unsigned>(gsr_data_.raw),
-                         gsr_data_.clipped ? "yes" : "no");
+                         static_cast<unsigned>(gsr_data_.raw), gsr_data_.clipped ? "yes" : "no");
             }
         }
 

@@ -4,4 +4,5 @@ idf_component_register(
         "Application.cpp"
     INCLUDE_DIRS "."
     REQUIRES sensors
+    PRIV_REQUIRES esp_timer
 )
